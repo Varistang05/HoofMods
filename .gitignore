@@ -1,0 +1,4 @@
+build/
+*.pdb
+*.lib
+nexus_*.txt
