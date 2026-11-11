@@ -1,4 +1,4 @@
-/* Forwards the real hid.dll exports so the game keeps working with the loader in place. */
+/* passes the real hid.dll functions thru so the game still works w/ the loader in place */
 #include <windows.h>
 
 void *g_fn[47];

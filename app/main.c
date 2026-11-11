@@ -1,4 +1,4 @@
-/* HoofMods: Mod Manager for Horses of Hoofprint Bay - desktop app */
+/* HoofMods: Mod Manager for Horses of Hoofprint Bay, the desktop app */
 #include <windows.h>
 #include <windowsx.h>
 #include <shlobj.h>
@@ -15,7 +15,7 @@
 
 #define APP_TITLE L"HoofMods: Mod Manager for Horses of Hoofprint Bay"
 
-/* ------------------------------------------------------------ appearance */
+/* ==== looks ==== */
 
 typedef struct { const wchar_t *name; COLORREF paper, desk, ink, faded, red; } Theme;
 static const Theme THEMES[] = {
@@ -43,7 +43,7 @@ static void apply_theme(void) {
     if (g_theme >= 0 && g_theme < N_THEMES) {
         const Theme *t = &THEMES[g_theme];
         C_PAPER = t->paper, C_DESK = t->desk, C_INK = t->ink, C_FADED = t->faded, C_RED = t->red;
-    } else { /* custom: the desk and faded ink are worked out from the chosen ink and paper */
+    } else { /* custom: the desk and faded ink get worked out from the ink and paper you picked */
         g_theme = THEME_CUSTOM;
         C_PAPER = g_custom_paper;
         C_INK = g_custom_ink;
@@ -57,7 +57,7 @@ enum { H_TOGGLE, H_ROW, H_REMOVE, H_FOLDER, H_INSTALL, H_FINDGAME, H_REFRESH, H_
        H_BACK, H_CFGLIST, H_CFGOPEN, H_CFG_TOGGLE, H_CFG_PREV, H_CFG_NEXT, H_CFG_EDIT,
        H_LOOK, H_THEME, H_ZOOM, H_TEXTURE, H_PICK, H_POP, H_UPDATE, H_GETBEP, H_NOMODS, H_BEPSW,
        H_WIN_MIN, H_WIN_MAX, H_WIN_CLOSE };
-typedef struct { RECT r, full; int type, arg, in_list; } Hit; /* r = visible part, full = whole (may be scrolled away) */
+typedef struct { RECT r, full; int type, arg, in_list; } Hit; /* r = the part you can see, full = the whole thing (might be scrolled away) */
 
 /* pages: 0 = mod list, 1 = BepInEx settings files, 2 = one settings file, 3 = appearance */
 static int g_page;
@@ -70,14 +70,14 @@ static int g_edit_idx = -1;
 static WNDPROC g_edit_proc;
 static void load_cfg_list(void);
 
-/* parchment pop-up drawn over the window (see popup()) */
+/* parchment popup drawn over the window (see popup()) */
 static int g_pop_active, g_pop_result, g_pop_nb, g_pop_danger;
-static int g_pop_start = 1; /* button the controller highlight starts on; set to 2 just before a careful question */
+static int g_pop_start = 1; /* which button the controller starts on, set to 2 right b4 a careful question */
 static wchar_t g_pop_title[128], g_pop_body[800], g_pop_btn[3][48];
 
 static Lib g_lib;
 static HWND g_wnd;
-static float s = 1, g_dpi_s = 1; /* s = monitor scale x chosen text size */
+static float s = 1, g_dpi_s = 1; /* s = monitor scale x text size */
 static HFONT fTitle, fSub, fHead, fBody, fSmall, fBtn;
 static Hit g_hits[512];
 static int g_nhits, g_sel = -1;
@@ -86,13 +86,13 @@ static wchar_t g_msg[256];
 static int g_msg_bad;
 static int g_mx = -1, g_my = -1;
 
-/* controller: a highlight moves between the things that can be pressed */
+/* controller: a highlight jumps between stuff you can press */
 static RECT g_list_rect;
-static int g_pad_mode;                   /* 1 after the controller was used, 0 after the mouse moved */
-static int g_focus_type = -1, g_focus_arg; /* what is highlighted, kept across redraws */
+static int g_pad_mode;                   /* 1 after using the controller, 0 after moving the mouse */
+static int g_focus_type = -1, g_focus_arg; /* whats highlighted, kept between redraws */
 static void paint_focus(void);
 
-/* ------------------------------------------------------------ drawing */
+/* ==== drawing ==== */
 
 static DWORD *g_px;
 static int g_w, g_h;
@@ -130,7 +130,7 @@ static void paint_desk(void) {
         }
 }
 
-/* Inked paper shape with a slightly hand-drawn edge and a hard drop shadow, like the game's UI. */
+/* inked paper shape w/ a slightly wobbly edge and a hard shadow, like the games UI */
 static void shape(float x, float y, float w, float h, float rad, COLORREF fill, float fill_a, COLORREF ink, float inkw, float shadow) {
     float cx = x + w / 2, cy = y + h / 2, hw = w / 2, hh = h / 2;
     rad = fminf(rad, fminf(hw, hh));
@@ -167,7 +167,7 @@ static void text(HDC dc, HFONT f, COLORREF c, int x, int y, int w, int h, const 
     SelectClipRgn(dc, NULL);
 }
 
-/* Small framed picture of a tack/clothes item, faded when the item is turned off. */
+/* small framed pic of a tack/clothes item, faded when its turned off */
 static void draw_thumb(int x, int y, int box, const wchar_t *path, int on) {
     shape(x, y, box, box, 7 * s, C_PAPER, 1, C_INK, 1.6f * s, 0);
     int inner = box - (int)(8 * s);
@@ -185,7 +185,7 @@ static void draw_thumb(int x, int y, int box, const wchar_t *path, int on) {
             float a = ((s32 >> 24) & 255) / 255.f * fade;
             if (a <= 0) continue;
             DWORD *d = &g_px[py * g_w + px];
-            /* premultiplied source: dst = src*fade + dst*(1-a) */
+            /* premultiplied, so dst = src*fade + dst*(1 minus a) */
             int r = (int)(((s32 >> 16) & 255) * fade + ((*d >> 16) & 255) * (1 - a));
             int g = (int)(((s32 >> 8) & 255) * fade + ((*d >> 8) & 255) * (1 - a));
             int b = (int)((s32 & 255) * fade + (*d & 255) * (1 - a));
@@ -224,7 +224,7 @@ static void toggle(int x, int y, int on) {
     shape(kx, y + 4 * s, k, k, k / 2, on ? C_PAPER : C_INK, 1, C_INK, on ? 0 : 0, 0);
 }
 
-/* ------------------------------------------------------------ layout */
+/* ==== layout ==== */
 
 static void make_fonts(void) {
     HFONT *all[] = {&fTitle, &fSub, &fHead, &fBody, &fSmall, &fBtn};
@@ -245,7 +245,7 @@ static void set_scale(void) {
     make_fonts();
 }
 
-/* Appearance is kept in %LOCALAPPDATA%\HoofMods\app.ini [Look]. */
+/* looks get saved in %LOCALAPPDATA%\HoofMods\app.ini [Look] */
 static void look_ini(wchar_t *out) { swprintf(out, MAX_PATH, L"%ls\\app.ini", g_lib.data); }
 
 static void load_look(void) {
@@ -371,7 +371,7 @@ static int paint_look(HDC dc, int y, int px, int pw) {
     return y;
 }
 
-/* The settings and appearance pages; returns the y below the last row. */
+/* the settings and appearance pages, gives back the y under the last row */
 static int paint_settings(HDC dc, int y, int px, int pw) {
     int rowh = (int)(58 * s), headh = (int)(42 * s);
     if (g_page == 3) return paint_look(dc, y, px, pw);
@@ -438,9 +438,9 @@ static int paint_settings(HDC dc, int y, int px, int pw) {
     return y;
 }
 
-/* ------------------------------------------------------------ own title bar */
+/* ==== our own title bar ==== */
 
-#define HEADER_H ((int)(90 * s)) /* the header doubles as the title bar */
+#define HEADER_H ((int)(90 * s)) /* the header is the title bar too */
 static int hit_at(int x, int y);
 
 static int frame_px(void) {
@@ -451,7 +451,7 @@ static int frame_px(void) {
     return GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
 }
 
-/* Minimize / maximize / close drawn in ink, plus a thin ink edge around the window. */
+/* minimize / maximize / close drawn in ink, plus a thin ink edge around the window */
 static void paint_window_frame(HDC dc) {
     (void)dc;
     RECT keep = g_clip;
@@ -466,7 +466,7 @@ static void paint_window_frame(HDC dc) {
         float cx = x + bw / 2.f, cy = bh / 2.f, r = 5.5f * s, lw = 1.6f * s;
         if (b == 0) shape(cx - r, cy, 2 * r, lw, lw / 2, ink, 1, 0, 0, 0);
         else if (b == 1) {
-            if (IsZoomed(g_wnd)) { /* restore: two overlapping squares */
+            if (IsZoomed(g_wnd)) { /* restore: two squares on top of each other */
                 shape(cx - r + 2.5f * s, cy - r - 1 * s, 2 * r - 3 * s, 2 * r - 3 * s, 1.5f * s, C_PAPER, 0, ink, lw, 0);
                 shape(cx - r, cy - r + 2 * s, 2 * r - 3 * s, 2 * r - 3 * s, 1.5f * s, hov ? C_INK : C_DESK, hov ? 0 : 1, ink, lw, 0);
             } else
@@ -480,7 +480,7 @@ static void paint_window_frame(HDC dc) {
         }
         hit_add(x, 0, bw, bh, H_WIN_MIN + b, 0);
     }
-    if (!IsZoomed(g_wnd)) { /* a thin ink edge, so the window still looks finished without a Windows frame */
+    if (!IsZoomed(g_wnd)) { /* thin ink edge so the window still looks finished w/o the Windows frame */
         float e = 1.5f * s;
         shape(0, 0, g_w, e, 0, C_INK, 0.6f, 0, 0, 0);
         shape(0, g_h - e, g_w, e, 0, C_INK, 0.6f, 0, 0, 0);
@@ -490,7 +490,7 @@ static void paint_window_frame(HDC dc) {
     g_clip = keep;
 }
 
-/* Edges resize, the header moves the window, buttons and links in it stay clickable. */
+/* edges resize, the header moves the window, buttons and links in it still click */
 static LRESULT title_hit_test(HWND w, LPARAM lp) {
     POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
     ScreenToClient(w, &pt);
@@ -509,14 +509,14 @@ static LRESULT title_hit_test(HWND w, LPARAM lp) {
         if (bottom) return HTBOTTOM;
     }
     if (pt.y < HEADER_H && !g_pop_active && hit_at(pt.x, pt.y) < 0) return HTCAPTION;
-    if (pt.y < HEADER_H && g_pop_active) { /* a pop-up is open: only the window buttons work up here */
+    if (pt.y < HEADER_H && g_pop_active) { /* a popup is open, only the window buttons work up here */
         int h = hit_at(pt.x, pt.y);
         if (h < 0 || g_hits[h].type < H_WIN_MIN) return HTCAPTION;
     }
     return HTCLIENT;
 }
 
-/* The pop-up card: the page behind is dimmed and only the pop-up's buttons can be clicked. */
+/* the popup card: the page behind gets dimmed and only the popups buttons click */
 static void paint_popup(HDC dc) {
     g_clip = (RECT){0, 0, g_w, g_h};
     for (int i = 0; i < g_w * g_h; i++) blend(&g_px[i], C_INK, 0.45f);
@@ -536,7 +536,7 @@ static void paint_popup(HDC dc) {
     SelectObject(dc, fBody); /* text() left the title font selected */
     SetTextColor(dc, C_INK);
     DrawTextW(dc, g_pop_body, -1, &br, DT_WORDBREAK | DT_NOPREFIX);
-    /* buttons right to left: the first one is the main choice */
+    /* buttons go right to left, the first one is the main one */
     int bx = cx + cw - pad, by = cy + ch - pad - bh;
     for (int b = 0; b < g_pop_nb; b++) {
         SIZE sz;
@@ -576,7 +576,7 @@ static void paint(HDC wdc) {
         text(dc, fSmall, hov ? C_INK : C_FADED, lx, ly2, lw, lh, L"\x270E Appearance", DT_RIGHT | DT_VCENTER);
         hit_add(lx, ly2, lw, lh, H_LOOK, 0);
     }
-    if (update_latest()) { /* a newer HoofMods is out */
+    if (update_latest()) { /* theres a newer HoofMods */
         wchar_t up[96];
         int page = update_has_page();
         swprintf(up, 96, page ? L"HoofMods %ls is out - get it on Nexus \x2192" : L"HoofMods %ls is out", update_latest());
@@ -586,7 +586,7 @@ static void paint(HDC wdc) {
         if (page) hit_add(ux, uy, uw, uh, H_UPDATE, 0);
     }
 
-    /* status card (on settings pages: back button and page title) */
+    /* status card (on settings pages its the back button and page title) */
     int sy = (int)(94 * s), sh = (int)(62 * s);
     shape(m, sy, g_w - 2 * m, sh, 12 * s, C_PAPER, 1, C_INK, 2.4f * s, 3 * s);
     const wchar_t *l1, *l2;
@@ -612,7 +612,7 @@ static void paint(HDC wdc) {
         l1 = L"Ready - the HoofMods loader is installed";
         swprintf(buf, 300, L"%ls", g_lib.game);
         l2 = buf;
-        /* one start with no code mods, e.g. to check if a mod causes a problem */
+        /* one start w/ no code mods, like to check if a mod is causing problems */
         int nw = (int)(170 * s), nx = g_w - m - nw - (int)(18 * s), ny = sy + (sh - (int)(26 * s)) / 2;
         int hov = hovered(nx, ny, nw, (int)(26 * s));
         text(dc, fSmall, hov ? C_INK : C_FADED, nx, ny, nw, (int)(26 * s), L"Start without mods \x2192", DT_RIGHT | DT_VCENTER);
@@ -666,10 +666,10 @@ static void paint(HDC wdc) {
                 hit_add(sx, fy, sw, (int)(26 * s), H_CFGLIST, 0);
             }
         }
-        /* ink rule under the heading */
+        /* ink line under the heading */
         shape(px, y + headh - 3 * s, pw, 2 * s, 1 * s, C_INK, 0.55f, 0, 0, 0);
         y += headh;
-        if (k == MK_BEPINEX && !g_lib.bepinex) { /* plugins without BepInEx can't run */
+        if (k == MK_BEPINEX && !g_lib.bepinex) { /* BepInEx mods cant run w/o BepInEx */
             int lh = (int)(24 * s);
             text(dc, fBody, C_RED, px + (int)(4 * s), y + (int)(6 * s), pw, lh, L"BepInEx isn't installed, so these mods can't run yet.", DT_LEFT | DT_VCENTER);
             text(dc, fSmall, C_FADED, px + (int)(4 * s), y + (int)(6 * s) + lh, pw - (int)(150 * s), (int)(20 * s),
@@ -769,7 +769,7 @@ static void paint(HDC wdc) {
     DeleteDC(dc);
 }
 
-/* ------------------------------------------------------------ actions */
+/* ==== doing stuff ==== */
 
 static void say(int bad, const wchar_t *fmt, ...) {
     va_list a;
@@ -780,8 +780,8 @@ static void say(int bad, const wchar_t *fmt, ...) {
     SetTimer(g_wnd, 1, 7000, NULL);
 }
 
-/* Shows a parchment pop-up and waits for a choice. b1 is the main button. Returns 1, 2 or 3
-   for the button pressed, 0 for Esc / closing. danger colours the title as a warning. */
+/* shows a parchment popup and waits for an answer. b1 is the main button. returns 1, 2 or 3 for
+   the button pressed, 0 for Esc or closing. danger makes the title a warning colour */
 static int popup(int danger, const wchar_t *title, const wchar_t *body, const wchar_t *b1, const wchar_t *b2, const wchar_t *b3) {
     if (g_edit) SetFocus(g_wnd);
     wcsncpy(g_pop_title, title, 127);
@@ -793,7 +793,7 @@ static int popup(int danger, const wchar_t *title, const wchar_t *body, const wc
     g_pop_danger = danger;
     g_pop_result = 0;
     g_pop_active = 1;
-    int keep_type = g_focus_type, keep_arg = g_focus_arg; /* controller highlight goes to the pop-up and back */
+    int keep_type = g_focus_type, keep_arg = g_focus_arg; /* controller highlight moves to the popup and back after */
     g_focus_type = H_POP;
     g_focus_arg = g_pop_start;
     g_pop_start = 1;
@@ -801,7 +801,7 @@ static int popup(int danger, const wchar_t *title, const wchar_t *body, const wc
     MSG m;
     while (g_pop_active) {
         int r = GetMessageW(&m, NULL, 0, 0);
-        if (r <= 0) { /* the app is closing: pass the quit on to the main loop */
+        if (r <= 0) { /* the app is closing, pass the quit on to the main loop */
             g_pop_active = 0;
             g_pop_result = 0;
             PostQuitMessage(0);
@@ -831,7 +831,7 @@ static void refresh(void) {
     wchar_t keep[MAX_PATH] = L"";
     ModKind kk = 0;
     if (g_sel >= 0 && g_sel < g_lib.n) wcscpy(keep, g_lib.mods[g_sel].id), kk = g_lib.mods[g_sel].kind;
-    thumb_clear(); /* pictures may have changed on disk */
+    thumb_clear(); /* pics might have changed on disk */
     lib_scan(&g_lib);
     load_cfg_list();
     g_sel = -1;
@@ -840,14 +840,14 @@ static void refresh(void) {
     InvalidateRect(g_wnd, NULL, FALSE);
 }
 
-/* Before tack/clothes leaves the game: if a save uses it, warn and back the saves up first.
-   Returns 0 if the player changed their mind (or the backup failed). */
+/* b4 tack/clothes leaves the game: if a save uses it, warn and back up the saves first
+   returns 0 if the player changed their mind (or the backup didnt work) */
 static int check_in_use(int i, const wchar_t *action, int *backed_up) {
     *backed_up = 0;
     wchar_t item[128], save[128], body[800], btn[64], where[MAX_PATH];
     int n = lib_saves_using(&g_lib, i, item, 128, save, 128);
     if (!n) return 1;
-    /* tested in the game: a missing item comes off the horse, and comes back where it was once its files are back */
+    /* tested in game: a missing item comes off the horse, and goes back where it was once its files are back */
     int removing = !wcscmp(action, L"remove");
     swprintf(body, 800,
              L"A horse in your save \x201C%ls\x201D%ls is wearing %ls.\n\nThat's fine: the game takes it off the horse while it's %ls, "
@@ -924,7 +924,7 @@ static void do_remove(int i) {
     refresh();
 }
 
-/* Asked only when a download's files don't show whether they are tack or clothes. */
+/* only asked when we cant tell from the files if its tack or clothes */
 static int ask_kind(void *ctx, const wchar_t *what) {
     (void)ctx;
     wchar_t q[400];
@@ -945,8 +945,8 @@ static const wchar_t *file_part(const wchar_t *p) {
     return f ? f + 1 : p;
 }
 
-/* After installing a code mod that is also loading itself from the game folder (StickHorse as
-   version.dll): offer to turn the game-folder copy off, since both would answer every button. */
+/* after installing a code mod thats also loading from the game folder (StickHorse as version.dll)
+   offer to turn the game folder copy off, otherwise both would react to every button */
 static void offer_twin(wchar_t *msg, int msgn) {
     if (!g_lib.twin[0]) return;
     wchar_t twin[MAX_PATH];
@@ -971,8 +971,8 @@ static void offer_twin(wchar_t *msg, int msgn) {
     }
 }
 
-/* Several loose files dropped together (a .json with its .png) are installed as one download:
-   they are copied into a temporary folder named after the first file, installed, then cleaned up. */
+/* a few loose files dropped together (a .json w/ its .png) count as one download, they get copied
+   to a temp folder named after the first file, installed, then cleaned up */
 static void install_paths(wchar_t **paths, int n) {
     wchar_t msg[300] = L"";
     int ok = 0, fail = 0, first_loose = -1;
@@ -1001,9 +1001,9 @@ static void install_paths(wchar_t **paths, int n) {
         if (lib_install(&g_lib, dir, ask_kind, NULL, msg, 300)) ok++, offer_twin(msg, 300);
         else fail++;
         SHFILEOPSTRUCTW op = {.wFunc = FO_DELETE, .pFrom = top, .fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI};
-        SHFileOperationW(&op); /* top is double-null terminated */
+        SHFileOperationW(&op); /* top ends w/ two nulls */
     }
-    if (fail) { /* problems get the full text in a pop-up, the bottom bar is too short for them */
+    if (fail) { /* problems get the full text in a popup bc the bottom bar is too small for them */
         wchar_t title[64];
         if (ok) swprintf(title, 64, L"Installed %d, %d didn't work", ok, fail);
         else wcscpy(title, L"That didn't install");
@@ -1059,7 +1059,7 @@ static void on_drop(HDROP d) {
     install_paths(list, n);
 }
 
-/* ------------------------------------------------------------ settings pages */
+/* ==== settings pages ==== */
 
 static void go_page(int p) {
     if (g_edit) SetFocus(g_wnd);
@@ -1213,7 +1213,7 @@ static void activate(int h) {
     case H_PICK: {
         static COLORREF custom[16];
         COLORREF *target = t->arg == 0 ? &g_custom_ink : t->arg == 1 ? &g_custom_paper : &g_custom_red;
-        if (g_theme != THEME_CUSTOM) { /* start from the current theme so small tweaks are easy */
+        if (g_theme != THEME_CUSTOM) { /* start from the current theme so small changes are easy */
             g_custom_ink = C_INK, g_custom_paper = C_PAPER, g_custom_red = C_RED;
         }
         CHOOSECOLORW cc = {sizeof cc};
@@ -1273,7 +1273,7 @@ static int hit_at(int x, int y) {
     return -1;
 }
 
-/* ------------------------------------------------------------ controller */
+/* ==== controller ==== */
 
 static int focusable(const Hit *h) { return h->type != H_ROW && h->type < H_WIN_MIN && h->full.right > h->full.left; }
 
@@ -1283,7 +1283,7 @@ static int focus_index(void) {
     return -1;
 }
 
-/* A sensible first highlight: the pop-up's main button, else the first switch, else anything. */
+/* where the highlight starts: the popups main button, else the first switch, else anything */
 static int focus_default(void) {
     int best = -1;
     for (int i = 0; i < g_nhits; i++) {
@@ -1313,7 +1313,7 @@ static void paint_focus(void) {
     g_clip = keep;
 }
 
-/* Keeps a highlighted list item inside the visible part of the list. */
+/* keeps a highlighted list item in the part of the list you can see */
 static void scroll_into_view(const Hit *h) {
     if (!h->in_list) return;
     int margin = (int)(10 * s);
@@ -1322,7 +1322,7 @@ static void scroll_into_view(const Hit *h) {
     clamp_scroll();
 }
 
-/* Moves the highlight to the nearest pressable thing in a direction. */
+/* moves the highlight to the closest thing you can press in that direction */
 static void nav(int dx, int dy) {
     int cur = focus_index();
     if (cur < 0) cur = focus_default();
@@ -1337,10 +1337,10 @@ static void nav(int dx, int dy) {
         RECT r = g_hits[i].full;
         if (!g_hits[i].in_list && r.bottom <= r.top) continue;
         float x = (r.left + r.right) / 2.f, y = (r.top + r.bottom) / 2.f;
-        float along = dx ? (x - cx) * dx : (y - cy) * dy;   /* distance in the wanted direction */
-        float across = dx ? fabsf(y - cy) : fabsf(x - cx); /* sideways drift */
+        float along = dx ? (x - cx) * dx : (y - cy) * dy;   /* how far in the direction we want */
+        float across = dx ? fabsf(y - cy) : fabsf(x - cx); /* how far off to the side */
         if (along <= 4 * s) continue;
-        /* rows: prefer staying in the same column; side moves: prefer the same line */
+        /* rows: try to stay in the same column, side moves: try to stay on the same line */
         float score = along + across * (dx ? 3.f : 1.2f);
         if (score < best_score) best_score = score, best = i;
     }
@@ -1377,12 +1377,12 @@ static void pad_tick(void) {
     static DWORD next_repeat;
     static int held_dir = -1;
     PadState p;
-    if (GetForegroundWindow() != g_wnd || !pad_read(&p)) { /* only while HoofMods is the active window */
+    if (GetForegroundWindow() != g_wnd || !pad_read(&p)) { /* only while HoofMods is the window youre using */
         prev = 0;
         held_dir = -1;
         return;
     }
-    /* d-pad and left stick share one direction with hold-to-repeat */
+    /* dpad and left stick share one direction, hold to repeat */
     int dir = -1;
     if (p.buttons & PAD_UP || p.ly > 0.55f) dir = 0;
     else if (p.buttons & PAD_DOWN || p.ly < -0.55f) dir = 1;
@@ -1391,7 +1391,7 @@ static void pad_tick(void) {
     DWORD now = GetTickCount();
     if (dir >= 0 && (dir != held_dir || now >= next_repeat)) {
         next_repeat = now + (dir != held_dir ? 380 : 110);
-        if (!g_pad_mode) g_pad_mode = 1; /* first touch only shows the highlight */
+        if (!g_pad_mode) g_pad_mode = 1; /* first touch just shows the highlight */
         else nav(dir == 2 ? -1 : dir == 3 ? 1 : 0, dir == 0 ? -1 : dir == 1 ? 1 : 0);
         g_mx = g_my = -1;
         InvalidateRect(g_wnd, NULL, FALSE);
@@ -1404,7 +1404,7 @@ static void pad_tick(void) {
         g_pad_mode = 1;
         g_mx = g_my = -1;
         InvalidateRect(g_wnd, NULL, FALSE);
-        if (was || g_pop_active) { /* the first press after using the mouse just shows the highlight */
+        if (was || g_pop_active) { /* first press after using the mouse just shows the highlight */
             if (down & PAD_A) pad_press_a();
             else if (down & PAD_B) pad_press_b();
             else if (down & PAD_X) pad_press_x();
@@ -1431,7 +1431,7 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_NCCALCSIZE:
-        if (wp) { /* no Windows title bar: the parchment header is the title bar */
+        if (wp) { /* no Windows title bar, the parchment header is the title bar */
             if (IsZoomed(w)) { /* a maximized window hangs over the screen edge by its frame */
                 NCCALCSIZE_PARAMS *pr = (NCCALCSIZE_PARAMS *)lp;
                 int f = frame_px();
@@ -1445,7 +1445,7 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         break;
     case WM_NCHITTEST: return title_hit_test(w, lp);
     case WM_CREATE: {
-        MARGINS mg = {0, 0, 1, 0}; /* keeps the Windows shadow without the frame */
+        MARGINS mg = {0, 0, 1, 0}; /* keeps the Windows shadow w/o the frame */
         DwmExtendFrameIntoClientArea(w, &mg);
         SetWindowPos(w, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
@@ -1508,7 +1508,7 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         InvalidateRect(w, NULL, FALSE);
         return 0;
     case WM_KEYDOWN:
-        /* the keyboard drives the same highlight as the controller */
+        /* keyboard moves the same highlight as the controller */
         if (wp == VK_UP || wp == VK_DOWN || wp == VK_LEFT || wp == VK_RIGHT) {
             g_mx = g_my = -1;
             if (!g_pad_mode) g_pad_mode = 1;
@@ -1534,7 +1534,7 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
     case WM_ACTIVATE:
-        if (LOWORD(wp) != WA_INACTIVE && !g_pop_active) refresh(); /* pick up files changed while the window was in the background */
+        if (LOWORD(wp) != WA_INACTIVE && !g_pop_active) refresh(); /* pick up files that changed while the window was in the background */
         return 0;
     case WM_TIMER:
         if (wp == 2) {
@@ -1556,7 +1556,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     HMODULE u = GetModuleHandleW(L"user32.dll");
     BOOL(WINAPI * set_ctx)(HANDLE) = (void *)GetProcAddress(u, "SetProcessDpiAwarenessContext");
-    if (set_ctx) set_ctx((HANDLE)-4); /* per-monitor v2 */
+    if (set_ctx) set_ctx((HANDLE)-4); /* per monitor v2 */
     else SetProcessDPIAware();
 
     lib_init(&g_lib);

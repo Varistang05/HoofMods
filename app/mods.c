@@ -9,7 +9,7 @@
 #define GAME_EXE L"Horses of Hoofprint Bay.exe"
 #define LOADER_FILE L"hid.dll"
 
-/* The loader ships next to the app as loader\hid.dll and is copied into the game folder from there. */
+/* the loader sits next to the app in loader\hid.dll and gets copied to the game folder from there */
 static void loader_source(wchar_t *out) {
     GetModuleFileNameW(NULL, out, MAX_PATH);
     wchar_t *sl = wcsrchr(out, L'\\');
@@ -42,7 +42,7 @@ void hm_mkdirs(const wchar_t *path) {
     CreateDirectoryW(p, NULL);
 }
 
-/* Reads a whole small file; caller frees. */
+/* reads a whole small file, free it after */
 static char *slurp(const wchar_t *path, DWORD max, DWORD *len) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (f == INVALID_HANDLE_VALUE) return NULL;
@@ -74,14 +74,14 @@ void lib_init(Lib *L) {
         swprintf(L->content, MAX_PATH, L"%ls\\ThogliStudios\\Horses of Hoofprint Bay\\Saves~\\Mods", low);
         CoTaskMemFree(low);
     }
-    /* app.ini [App] Content= overrides where the game's own Mods folder is (unusual setups, e.g. Proton) */
+    /* app.ini [App] Content= changes where the games Mods folder is (for odd setups like Proton) */
     wchar_t ini[MAX_PATH], over[MAX_PATH];
     swprintf(ini, MAX_PATH, L"%ls\\app.ini", L->data);
     GetPrivateProfileStringW(L"App", L"Content", L"", over, MAX_PATH, ini);
     if (over[0]) wcscpy(L->content, over);
 }
 
-/* ------------------------------------------------------------ finding the game */
+/* ==== finding the game ==== */
 
 static void find_appid(Lib *L, const wchar_t *steamapps) {
     wchar_t pat[MAX_PATH], p[MAX_PATH];
@@ -139,7 +139,7 @@ int lib_find_game(Lib *L) {
         if (*c == L'/') *c = L'\\';
     if (try_library(L, steam)) return 1;
 
-    /* other Steam libraries: lines like   "path"   "D:\\SteamLibrary"   */
+    /* other Steam libraries, lines like   "path"   "D:\\SteamLibrary" */
     wchar_t vdf[MAX_PATH];
     swprintf(vdf, MAX_PATH, L"%ls\\steamapps\\libraryfolders.vdf", steam);
     DWORD n;
@@ -166,7 +166,7 @@ int lib_find_game(Lib *L) {
     return 0;
 }
 
-/* ------------------------------------------------------------ scanning */
+/* ==== scanning ==== */
 
 static Mod *add(Lib *L, ModKind k, const wchar_t *id, int on) {
     if (L->n == L->cap) {
@@ -218,7 +218,7 @@ static void scan_dll_mods(Lib *L) {
     FindClose(f);
 }
 
-/* ---- mods that load themselves straight from the game folder (not through HoofMods) */
+/* ==== mods that load straight from the game folder (not thru HoofMods) ==== */
 
 const wchar_t *PROXY_NAMES[] = {L"version.dll", L"winmm.dll", L"winhttp.dll", L"wininet.dll", L"dinput8.dll", L"dxgi.dll",
                                 L"d3d9.dll", L"d3d11.dll", L"d3d12.dll", L"dsound.dll", L"xinput1_3.dll", L"xinput1_4.dll",
@@ -230,7 +230,7 @@ int hm_is_proxy_name(const wchar_t *file) {
     return 0;
 }
 
-/* A readable name for such a file, from names the file itself contains. */
+/* a nice name for that file, from names inside the file itself */
 static void guess_direct_name(const char *t, DWORD n, const wchar_t *file, wchar_t *out, int outn) {
     static const struct { const char *needle; const wchar_t *name; } known[] = {
         {"StickHorse", L"StickHorse"}, {"ReShade", L"ReShade"}, {"MelonLoader", L"MelonLoader"}, {"Doorstop", L"BepInEx"}, {"SpecialK", L"Special K"}};
@@ -252,7 +252,7 @@ static void scan_direct_mods(Lib *L) {
             char *t = slurp(p, 64u << 20, &n);
             if (!t) continue;
             int bepinex_core = memfind(t, n, "Doorstop") && !_wcsicmp(PROXY_NAMES[i], L"winhttp.dll");
-            if (!bepinex_core) { /* BepInEx's own starter is BepInEx itself, not a mod to switch here */
+            if (!bepinex_core) { /* thats just BepInEx's starter, not a mod to switch here */
                 swprintf(id, MAX_PATH, L"@%ls", PROXY_NAMES[i]);
                 Mod *m = add(L, MK_DLL, id, !off);
                 guess_direct_name(t, n, PROXY_NAMES[i], m->name, 128);
@@ -263,7 +263,7 @@ static void scan_direct_mods(Lib *L) {
     }
 }
 
-/* Same mod both in the game folder and through HoofMods? Then both copies would run. */
+/* same mod in the game folder AND thru HoofMods? then both copies would run */
 static void flag_twins(Lib *L) {
     for (int i = 0; i < L->n; i++) {
         Mod *d = &L->mods[i];
@@ -295,7 +295,7 @@ static void scan_bepinex_dir(Lib *L, const wchar_t *dir, int on) {
     FindClose(f);
 }
 
-/* The string value of the first "key": "value" at or after `from`; returns a pointer past it, or NULL. */
+/* string value of the first "key": "value" from `from` on, gives a pointer past it or NULL */
 static const char *json_str(const char *from, const char *key, char *buf, int bufn) {
     char pat[64];
     snprintf(pat, sizeof pat, "\"%s\"", key);
@@ -314,8 +314,8 @@ static const char *json_str(const char *from, const char *key, char *buf, int bu
     return e + 1;
 }
 
-/* Readable name of a tack/clothes item. The game's format keeps it in
-   "namesPerLanguage": [{"lang": "EN", "value": "Blue Ascot Jumping Pad"}, ...]. */
+/* the name of a tack/clothes item, the game keeps it in
+   "namesPerLanguage": [{"lang": "EN", "value": "Blue Ascot Jumping Pad"}, ...] */
 static void json_name(const wchar_t *path, wchar_t *out, int outn) {
     DWORD n;
     char *t = slurp(path, 1 << 16, &n);
@@ -331,7 +331,7 @@ static void json_name(const wchar_t *path, wchar_t *out, int outn) {
                 break;
             }
         }
-        if (!v[0]) json_str(names, "value", v, sizeof v); /* no English name: take the first one */
+        if (!v[0]) json_str(names, "value", v, sizeof v); /* no English name, just take the first one */
     }
     static const char *keys[] = {"displayName", "itemName", "name", "Name"};
     for (int k = 0; k < 4 && !v[0]; k++) json_str(t, keys[k], v, sizeof v);
@@ -350,12 +350,12 @@ void hm_content_dir(Lib *L, ModKind k, int on, wchar_t *out) {
     else swprintf(out, MAX_PATH, L"%ls\\Off\\%ls", L->data, CONTENT_DIR[k]);
 }
 
-/* ---- pictures named inside item files ("spritesWearingLayer1": ["pad_layer1.png"]) */
+/* ==== pics named inside item files ("spritesWearingLayer1": ["pad_layer1.png"]) ==== */
 
 #define MAX_REFS 1024
 typedef struct {
-    wchar_t name[MAX_REFS][MAX_PATH]; /* referenced picture file names */
-    wchar_t owner[MAX_REFS][MAX_PATH]; /* base name of the item file naming it */
+    wchar_t name[MAX_REFS][MAX_PATH]; /* pic file names */
+    wchar_t owner[MAX_REFS][MAX_PATH]; /* which item file names it */
     int n;
 } Refs;
 
@@ -398,8 +398,8 @@ static void refs_of_dir(const wchar_t *dir, Refs *R) {
     FindClose(f);
 }
 
-/* File names (in dir) that belong to item `id`: everything named id.*, plus pictures its file
-   names that no other item in the folder also uses (shared pictures stay put). */
+/* files (in dir) that belong to item id: everything called id.*, plus pics its file names
+   that no other item uses (shared pics stay put) */
 static int item_files(const wchar_t *dir, const wchar_t *id, wchar_t (*out)[MAX_PATH], int max) {
     static Refs R;
     int n = 0;
@@ -445,7 +445,7 @@ static void scan_content(Lib *L, ModKind k, int on) {
         wchar_t *ext = wcsrchr(base, L'.');
         if (ext) *ext = 0;
         if (has_mod(L, k, base)) continue;
-        if (!ext || _wcsicmp(ext + 1, L"json")) { /* a picture another item's file names is part of that item */
+        if (!ext || _wcsicmp(ext + 1, L"json")) { /* a pic another item names belongs to that item */
             int owned = 0;
             for (int r = 0; r < R.n && !owned; r++) owned = !_wcsicmp(R.name[r], fd.cFileName) && _wcsicmp(R.owner[r], base);
             wchar_t js[MAX_PATH];
@@ -460,8 +460,8 @@ static void scan_content(Lib *L, ModKind k, int on) {
     FindClose(f);
 }
 
-/* Packages: %LOCALAPPDATA%\HoofMods\packages\<id>.ini  [Package] Name, Kind  [Items] 0=<item id> ...
-   Items of a package are hidden and shown through one package row. */
+/* packs: %LOCALAPPDATA%\HoofMods\packages\<id>.ini  [Package] Name, Kind  [Items] 0=<item id> ...
+   items in a pack get hidden and show up as one pack row */
 static void free_packages(Lib *L) {
     for (int p = 0; p < L->npkgs; p++) free(L->pkgs[p].items);
     free(L->pkgs);
@@ -509,7 +509,7 @@ static void load_packages(Lib *L) {
             }
             P->nitems++;
         }
-        if (!members) { /* everything was removed by hand: forget the package */
+        if (!members) { /* everything got removed by hand, forget the pack */
             free(P->items);
             DeleteFileW(ini);
             continue;
@@ -517,7 +517,7 @@ static void load_packages(Lib *L) {
         wchar_t info[256];
         if (members == 1) wcscpy(info, L->mods[first].info);
         else swprintf(info, 256, L"%d %lss", members, KIND_ITEM[kind]);
-        Mod *row = add(L, kind, P->id, on > 0); /* may move L->mods; don't keep pointers across */
+        Mod *row = add(L, kind, P->id, on > 0); /* the mods list can move around so dont hold on to pointers */
         row->pkg = L->npkgs;
         row->count = members;
         wcsncpy(row->name, P->name, 127);
@@ -540,13 +540,13 @@ static void detect_loader(Lib *L) {
     DWORD n;
     char *t = slurp(p, 64u << 20, &n);
     if (!t) return;
-    L->loader = memfind(t, n, "HoofMods_Version") ? 1 : 2; /* 2: another mod uses the name; never overwrite it */
-    if (L->loader == 1) { /* ours: is it the same as the one that came with this app? */
+    L->loader = memfind(t, n, "HoofMods_Version") ? 1 : 2; /* 2: another mod uses that name, never overwrite it */
+    if (L->loader == 1) { /* ours, but is it the same one that came w/ this app? */
         wchar_t src[MAX_PATH];
         loader_source(src);
         DWORD sn;
         char *s = slurp(src, 64u << 20, &sn);
-        if (s && (sn != n || memcmp(s, t, n))) L->loader = 3; /* older (or newer) loader: offer the update */
+        if (s && (sn != n || memcmp(s, t, n))) L->loader = 3; /* older (or newer) loader, offer the update */
         free(s);
     }
     free(t);
@@ -563,7 +563,7 @@ void hm_keepout(Lib *L, const wchar_t *path, int add) {
     char *out = malloc(cap), *o = out;
     if (t)
         for (char *line = strtok(t, "\r\n"); line; line = strtok(NULL, "\r\n")) {
-            if (!*line || !_stricmp(line, want)) continue; /* drop it; added back below if wanted */
+            if (!*line || !_stricmp(line, want)) continue; /* take it out, gets added back below if needed */
             size_t l = strlen(line);
             memcpy(o, line, l);
             o += l;
@@ -611,11 +611,9 @@ static int keepout_has(Lib *L, const wchar_t *path) {
     return found;
 }
 
-/* A file can end up both in the game's folder and in HoofMods storage when Steam Cloud puts a
-   turned-off file back. Settle it before listing:
-   - on the keep-out list: it is meant to be off, so the game-folder copy goes (Steam may bring it
-     back once more; the loader removes it again during the game);
-   - not on the list: it is meant to be on, so an identical leftover in storage goes. */
+/* when Steam Cloud brings back a turned off file it can end up in the game folder AND in storage
+   on the keep out list = its meant to be off, so the game folder copy goes (if Steam brings it back again the loader deletes it)
+   not on the list = its meant to be on, so the extra copy in storage goes */
 static void settle_duplicates(Lib *L, ModKind k) {
     wchar_t on_dir[MAX_PATH], off_dir[MAX_PATH], pat[MAX_PATH], on_p[MAX_PATH], off_p[MAX_PATH];
     content_dir(L, k, 1, on_dir);
@@ -635,8 +633,8 @@ static void settle_duplicates(Lib *L, ModKind k) {
     FindClose(f);
 }
 
-/* BepInEx counts as installed when its starter (winhttp.dll) and its core folder are there.
-   A BepInEx folder alone isn't enough: installing a BepInEx mod creates one. */
+/* BepInEx counts as installed when winhttp.dll and BepInEx\core are there. just a BepInEx folder
+   isnt enough bc installing a BepInEx mod makes one too */
 static int bepinex_installed(Lib *L) {
     wchar_t a[MAX_PATH], b[MAX_PATH];
     swprintf(a, MAX_PATH, L"%ls\\winhttp.dll", L->game);
@@ -644,11 +642,9 @@ static int bepinex_installed(Lib *L) {
     return exists(a) && is_dir(b);
 }
 
-/* For this game BepInEx 6 has to be told not to fetch Unity's base libraries:
-   [IL2CPP] UnityBaseLibrariesSource must be empty. When HoofMods installs BepInEx it writes that
-   before the first start; if BepInEx's config ever says otherwise afterwards, it is set back and
-   the folders made with the wrong setting are cleared so BepInEx rebuilds them.
-   Only done for a BepInEx that HoofMods installed, never for someone's own setup. */
+/* for this game BepInEx 6 needs [IL2CPP] UnityBaseLibrariesSource left empty or it tries to download Unitys
+   base libraries. we write that b4 the first start, and if it ever changes we blank it again and clear the
+   folders it made so BepInEx rebuilds them. only for a BepInEx HoofMods installed, never someones own setup */
 void hm_bepinex_config(Lib *L) {
     wchar_t ini[MAX_PATH], cfg[MAX_PATH], dir[MAX_PATH];
     swprintf(ini, MAX_PATH, L"%ls\\app.ini", L->data);
@@ -660,7 +656,7 @@ void hm_bepinex_config(Lib *L) {
     const char *fresh = "[IL2CPP]\r\n\r\nUnityBaseLibrariesSource = \r\n";
     char *out = NULL;
     int changed = 0;
-    if (!t) { /* first start hasn't happened yet: start the config with the right value */
+    if (!t) { /* no first start yet, start the config w/ the right value */
         mkdirs(dir);
         out = _strdup(fresh);
     } else {
@@ -675,7 +671,7 @@ void hm_bepinex_config(Lib *L) {
             if (eq && eq < end) {
                 char *v = eq + 1;
                 while (v < end && (*v == ' ' || *v == '\t')) v++;
-                if (v < end) { /* has a value: empty it */
+                if (v < end) { /* it has a value, empty it */
                     size_t head = (size_t)(eq + 1 - t);
                     out = malloc(n + 4);
                     memcpy(out, t, head);
@@ -693,7 +689,7 @@ void hm_bepinex_config(Lib *L) {
             WriteFile(f, out, (DWORD)strlen(out), &w, NULL);
             CloseHandle(f);
         }
-        if (changed) { /* made with the wrong setting: let BepInEx build them again */
+        if (changed) { /* made w/ the wrong setting, let BepInEx make them again */
             wchar_t gone[2][MAX_PATH];
             const wchar_t *ptr[2];
             swprintf(gone[0], MAX_PATH, L"%ls\\BepInEx\\interop", L->game);
@@ -708,8 +704,8 @@ void hm_bepinex_config(Lib *L) {
     free(t);
 }
 
-/* BepInEx starts with the game through Doorstop; doorstop_config.ini [General] enabled = true/false.
-   Finds that value in t (the line "enabled", not "debug_enabled"); *end = end of the value. */
+/* BepInEx starts w/ the game thru Doorstop: doorstop_config.ini [General] enabled = true/false
+   finds that value in t (the "enabled" line, not "debug_enabled"), *end = where the value ends */
 static char *doorstop_value(char *t, char **end) {
     for (char *l = t; l && *l; l = strpbrk(l, "\n") ? strpbrk(l, "\n") + 1 : NULL) {
         char *c = l;
@@ -728,7 +724,7 @@ static int bepinex_on(Lib *L) {
     wchar_t p[MAX_PATH];
     swprintf(p, MAX_PATH, L"%ls\\doorstop_config.ini", L->game);
     char *t = slurp(p, 1 << 20, NULL), *end;
-    if (!t) return 1; /* no config: Doorstop starts by default */
+    if (!t) return 1; /* no config, Doorstop starts anyway */
     char *v = doorstop_value(t, &end);
     int on = 1;
     if (v) {
@@ -797,7 +793,7 @@ void lib_scan(Lib *L) {
     qsort(L->mods, L->n, sizeof(Mod), cmp_mod);
 }
 
-/* ------------------------------------------------------------ changing things */
+/* ==== changing stuff ==== */
 
 static int move_item(const wchar_t *from, const wchar_t *to_dir, const wchar_t *name, wchar_t *err, int errn) {
     wchar_t to[MAX_PATH];
@@ -814,19 +810,19 @@ static int move_item(const wchar_t *from, const wchar_t *to_dir, const wchar_t *
 
 int lib_set_enabled(Lib *L, int i, int on, wchar_t *err, int errn) {
     Mod *m = &L->mods[i];
-    if (m->pkg >= 0 && !m->hidden) { /* package row: switch every item in it */
+    if (m->pkg >= 0 && !m->hidden) { /* pack row: switch every item in it */
         int ok = 1;
         for (int j = 0; j < L->n; j++)
             if (L->mods[j].hidden && L->mods[j].pkg == m->pkg && !lib_set_enabled(L, j, on, err, errn)) ok = 0;
         if (ok) m->enabled = on;
-        m->pic_state = 0; /* files moved: look the picture up again */
+        m->pic_state = 0; /* files moved, find the pic again */
         return ok;
     }
     if (m->enabled == on) return 1;
     wchar_t a[MAX_PATH], b[MAX_PATH], from[MAX_PATH];
     switch (m->kind) {
     case MK_DLL:
-        if (m->id[0] == L'@') { /* straight in the game folder: version.dll <-> version.dll.off */
+        if (m->id[0] == L'@') { /* right in the game folder: version.dll vs version.dll.off */
             wchar_t off_name[MAX_PATH];
             swprintf(off_name, MAX_PATH, L"%ls.off", m->id + 1);
             swprintf(from, MAX_PATH, L"%ls\\%ls", L->game, on ? off_name : m->id + 1);
@@ -858,13 +854,13 @@ int lib_set_enabled(Lib *L, int i, int on, wchar_t *err, int errn) {
                 ok = 0;
                 continue;
             }
-            /* Steam Cloud would put a turned-off file back: the loader keeps it out */
+            /* Steam Cloud would bring back a turned off file, the loader keeps it out */
             wchar_t game_path[MAX_PATH];
             swprintf(game_path, MAX_PATH, L"%ls\\%ls", on ? b : a, files[k]);
             hm_keepout(L, game_path, !on);
         }
         if (!ok) return 0;
-        if (on) { /* a picture shared with a turned-off item may have stayed behind: copy it over */
+        if (on) { /* a pic shared w/ a turned off item might have stayed behind, copy it over */
             static Refs R;
             wchar_t js[MAX_PATH], to[MAX_PATH];
             R.n = 0;
@@ -884,7 +880,7 @@ int lib_set_enabled(Lib *L, int i, int on, wchar_t *err, int errn) {
     return 1;
 }
 
-/* Sends files/folders to the Recycle Bin, so an uninstall can always be undone. */
+/* sends stuff to the Recycle Bin so you can always get it back */
 int hm_recycle(const wchar_t *const *paths, int n) {
     if (n <= 0) return 1;
     size_t len = 1;
@@ -928,7 +924,7 @@ static int remove_item(Lib *L, Mod *m, wchar_t *err, int errn) {
         swprintf(err, errn, lib_game_running() ? L"%ls is in use. Close the game and try again." : L"Could not remove %ls.", m->name);
         return 0;
     }
-    if (nf) { /* removed tack/clothes must not come back through Steam Cloud either */
+    if (nf) { /* removed tack/clothes cant come back thru Steam Cloud either */
         wchar_t game_dir[MAX_PATH], game_path[MAX_PATH];
         content_dir(L, m->kind, 1, game_dir);
         for (int k = 0; k < nf; k++) {
@@ -959,15 +955,15 @@ int lib_uninstall(Lib *L, int i, wchar_t *err, int errn) {
     return remove_item(L, m, err, errn);
 }
 
-/* ------------------------------------------------------------ saves (read only) */
+/* ==== saves (only read) ==== */
 
 static void games_dir(Lib *L, wchar_t *out) {
-    wcscpy(out, L->content); /* ...\Saves~\Mods -> ...\Saves~\Games */
+    wcscpy(out, L->content); /* Saves~\Mods becomes Saves~\Games */
     wchar_t *sl = wcsrchr(out, L'\\');
     if (sl) wcscpy(sl + 1, L"Games");
 }
 
-/* the game's own id of a tack/clothes item ("item.tack.saddlepad.x"), from its file */
+/* the games own id for a tack/clothes item ("item.tack.saddlepad.x"), from its file */
 static int item_game_id(Lib *L, const Mod *m, char *out, int outn) {
     wchar_t dir[MAX_PATH], js[MAX_PATH];
     content_dir(L, m->kind, m->enabled, dir);
@@ -984,7 +980,7 @@ int lib_saves_using(Lib *L, int i, wchar_t *item, int itemn, wchar_t *savename, 
     item[0] = savename[0] = 0;
     Mod *row = &L->mods[i];
     if (row->kind != MK_TACK && row->kind != MK_CLOTHES) return 0;
-    /* the items to look for: the row itself, or every item of its pack */
+    /* what to look for: the row itself, or every item in its pack */
     static char ids[512][160];
     static wchar_t names[512][128];
     int nid = 0;
@@ -994,7 +990,7 @@ int lib_saves_using(Lib *L, int i, wchar_t *item, int itemn, wchar_t *savename, 
         if (!member) continue;
         char id[160];
         if (item_game_id(L, m, id, sizeof id)) {
-            /* the save stores it in quotes: "item.tack.saddlepad.x" */
+            /* the save has it in quotes: "item.tack.saddlepad.x" */
             snprintf(ids[nid], sizeof ids[nid], "\"%s\"", id);
             wcscpy(names[nid++], m->name);
         }
@@ -1041,7 +1037,7 @@ int lib_backup_saves(Lib *L, wchar_t *where, int wheren) {
     SYSTEMTIME t;
     GetLocalTime(&t);
     swprintf(dest, MAX_PATH, L"%ls\\%04d-%02d-%02d %02d.%02d.%02d", root, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
-    /* games and dest are double-null terminated for SHFileOperation */
+    /* games and dest end w/ two nulls for SHFileOperation */
     SHFILEOPSTRUCTW op = {.wFunc = FO_COPY, .pFrom = games, .pTo = dest,
                           .fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMMKDIR};
     if (SHFileOperationW(&op) || op.fAnyOperationsAborted || !is_dir(dest)) return 0;
@@ -1071,7 +1067,7 @@ int lib_backup_saves(Lib *L, wchar_t *where, int wheren) {
 
 static int find_preview(Lib *L, int i, wchar_t *out);
 
-/* Cached per row until the next scan, since it is asked for on every redraw. */
+/* kept per row till the next scan bc it gets asked for on every redraw */
 int lib_preview_path(Lib *L, int i, wchar_t *out) {
     Mod *m = &L->mods[i];
     if (!m->pic_state) m->pic_state = find_preview(L, i, m->pic) ? 1 : 2;
@@ -1082,14 +1078,14 @@ int lib_preview_path(Lib *L, int i, wchar_t *out) {
 static int find_preview(Lib *L, int i, wchar_t *out) {
     Mod *m = &L->mods[i];
     if (m->kind != MK_TACK && m->kind != MK_CLOTHES) return 0;
-    if (m->pkg >= 0 && !m->hidden) { /* package row: first item's picture */
+    if (m->pkg >= 0 && !m->hidden) { /* pack row: first items pic */
         for (int j = 0; j < L->n; j++)
             if (L->mods[j].hidden && L->mods[j].pkg == m->pkg) return lib_preview_path(L, j, out);
         return 0;
     }
     wchar_t dir[MAX_PATH], js[MAX_PATH];
     content_dir(L, m->kind, m->enabled, dir);
-    /* the game's shop picture, if the item names one */
+    /* the games shop pic, if the item has one */
     swprintf(js, MAX_PATH, L"%ls\\%ls.json", dir, m->id);
     DWORD n;
     char *t = slurp(js, 1 << 16, &n);
@@ -1120,8 +1116,8 @@ int lib_game_running(void) {
 }
 
 
-/* Puts the loader (hid.dll) in place, or updates it. It never touches files that belong to other
-   mods, such as a version.dll (StickHorse, MelonLoader) or winhttp.dll (BepInEx). */
+/* puts the loader (hid.dll) in place or updates it. never touches other mods files like
+   version.dll (StickHorse, MelonLoader) or winhttp.dll (BepInEx) */
 int lib_install_loader(Lib *L, wchar_t *err, int errn) {
     if (!L->game[0]) return swprintf(err, errn, L"The game folder was not found."), 0;
     if (lib_game_running()) return swprintf(err, errn, L"Close the game first."), 0;

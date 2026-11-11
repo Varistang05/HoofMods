@@ -11,5 +11,5 @@ typedef struct {
     float lx, ly, rx, ry, lt, rt;
 } PadState;
 
-/* First connected controller; 0 if none. */
+/* first controller thats plugged in, 0 if none */
 int pad_read(PadState *out);

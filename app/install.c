@@ -1,4 +1,4 @@
-/* Installing mods from a zip, a folder or loose files. */
+/* installing mods from a zip, a folder or loose files */
 #include "mods.h"
 #include "zip.h"
 #include <stdio.h>
@@ -7,8 +7,8 @@
 #include <wctype.h>
 
 typedef struct {
-    wchar_t rel[MAX_PATH]; /* path inside the download, '\' separated */
-    int zi;                /* zip entry, or -1 for a file on disk */
+    wchar_t rel[MAX_PATH]; /* path inside the download, w/ \ between folders */
+    int zi;                /* zip entry, or minus 1 for a file on disk */
     wchar_t file[MAX_PATH];
 } Ent;
 
@@ -17,7 +17,7 @@ typedef struct {
     int n, cap;
     Zip zip;
     int is_zip;
-    wchar_t name[128]; /* download name without extension */
+    wchar_t name[128]; /* download name w/o the extension */
 } Src;
 
 static unsigned rd16(const unsigned char *p) { return p[0] | p[1] << 8; }
@@ -72,7 +72,7 @@ static unsigned char *src_read(Src *s, int i, size_t *len) {
     return read_disk(s->e[i].file, len);
 }
 
-/* ------------------------------------------------------------ path helpers */
+/* ==== path helpers ==== */
 
 static const wchar_t *ext_of(const wchar_t *p) {
     const wchar_t *d = wcsrchr(p, L'.'), *sl = wcsrchr(p, L'\\');
@@ -84,19 +84,19 @@ static const wchar_t *file_of(const wchar_t *p) {
     return sl ? sl + 1 : p;
 }
 
-/* Index just past the folder segment called `name` (any case), or -1. */
+/* index right after the folder called name (any case), or minus 1 */
 static int seg_after(const wchar_t *p, const wchar_t *name) {
     size_t k = wcslen(name);
     for (const wchar_t *c = p; *c;) {
         const wchar_t *e = wcschr(c, L'\\');
-        if (!e) return -1; /* last segment is the file itself */
+        if (!e) return -1; /* the last part is the file itself */
         if ((size_t)(e - c) == k && !_wcsnicmp(c, name, k)) return (int)(e + 1 - p);
         c = e + 1;
     }
     return -1;
 }
 
-/* Does any folder in the path contain `word` (any case)? */
+/* does any folder in the path have word in it? (any case) */
 static int folder_has(const wchar_t *p, const wchar_t *word) {
     wchar_t low[MAX_PATH];
     int i = 0;
@@ -113,7 +113,7 @@ static int dir_len(const wchar_t *p) {
     return sl ? (int)(sl - p) + 1 : 0;
 }
 
-/* Length of the folder prefix every entry shares (to skip a wrapper folder like "MyMod-1.0\"). */
+/* how much folder path every file shares (to skip a wrapper folder like "MyMod 1.0\") */
 static int common_root(Src *s, int (*want)(const Ent *)) {
     int len = -1;
     const wchar_t *first = NULL;
@@ -146,19 +146,18 @@ static void sanitize(const wchar_t *in, wchar_t *out, int outn) {
     if (!out[0]) wcscpy(out, L"Mod");
 }
 
-/* Download names carry extras from the site they came from:
-   "Tartan_Saddle_Pads-123-1-0-1730000000"                       -> "Tartan Saddle Pads"   (Nexus)
-   "Westmore_Ascot_Jumping_Pads_V1.1-1-1-2026-09-03T07-26Z-XJk5wn0m" -> "Westmore Ascot Jumping Pads V1.1" */
+/* download names come w/ extra junk from the site, like the nexus id, version and upload time at the end,
+   or a patreon date stamp + random code. we cut that off so just the name is left */
 static void pretty_name(const wchar_t *in, wchar_t *out, int outn) {
     wcsncpy(out, in, outn - 1);
     out[outn - 1] = 0;
-    for (wchar_t *c = out; *c; c++) /* cut at a date stamp (2026-09-03 ...) and everything after it */
+    for (wchar_t *c = out; *c; c++) /* cut it off at a date stamp and everything after */
         if (iswdigit(c[0]) && iswdigit(c[1]) && iswdigit(c[2]) && iswdigit(c[3]) && c[4] == L'-' && iswdigit(c[5]) && iswdigit(c[6]) &&
             c[7] == L'-' && iswdigit(c[8]) && iswdigit(c[9]) && c > out) {
             *c = 0;
             break;
         }
-    for (;;) { /* drop trailing number-only parts and separators */
+    for (;;) { /* drop number only bits and separators at the end */
         size_t k = wcslen(out);
         while (k && (out[k - 1] == L'-' || out[k - 1] == L'_' || out[k - 1] == L' ')) out[--k] = 0;
         size_t j = k;
@@ -171,7 +170,7 @@ static void pretty_name(const wchar_t *in, wchar_t *out, int outn) {
     if (!out[0]) wcsncpy(out, in, outn - 1);
 }
 
-/* The game's own tack/clothes files say what they are: "id": "item.tack.…" or "item.clothes.…" / "item.rider.…". */
+/* the games tack/clothes files say what they are: "id": "item.tack..." or "item.clothes..." / "item.rider..." */
 static int json_kind(const unsigned char *d, size_t n) {
     char tmp[4097];
     size_t k = n < 4096 ? n : 4096;
@@ -186,7 +185,7 @@ static int json_kind(const unsigned char *d, size_t n) {
     return -1;
 }
 
-/* Value of key= in a small UTF-8 ini held in memory. */
+/* value of key= in a small UTF8 ini thats already in memory */
 static int ini_value(const unsigned char *d, size_t n, const char *key, wchar_t *out, int outn) {
     size_t k = strlen(key);
     for (size_t i = 0; i < n; i++) {
@@ -207,7 +206,7 @@ static int ini_value(const unsigned char *d, size_t n, const char *key, wchar_t 
     return 0;
 }
 
-/* 1 = .NET assembly (BepInEx plugin), 0 = plain DLL, -1 = not a DLL */
+/* 1 = .NET DLL (BepInEx mod), 0 = normal DLL, minus 1 = not a DLL */
 static int is_managed(const unsigned char *d, size_t n) {
     if (n < 0x40 || d[0] != 'M' || d[1] != 'Z') return -1;
     size_t pe = rd32(d + 0x3C);
@@ -274,17 +273,17 @@ static int add_unique(wchar_t (*items)[MAX_PATH], int n, int max, const wchar_t 
 #define MAX_ITEMS 512
 static wchar_t g_items[MAX_ITEMS][MAX_PATH];
 
-/* ------------------------------------------------------------ the three kinds of download */
+/* ==== the three kinds of download ==== */
 
-/* BepInEx itself (winhttp.dll + doorstop next to its BepInEx folder): everything goes into the game
-   folder, then its config is set the way this game needs before the first start. */
+/* BepInEx itself (winhttp.dll + doorstop next to its BepInEx folder): it all goes in the game folder,
+   then its config gets set up for this game b4 the first start */
 static int install_bepinex_core(Lib *L, Src *s, int starter, wchar_t *msg, int msgn) {
     int il2cpp = 0, mono = 0;
     for (int i = 0; i < s->n; i++) {
         if (!_wcsicmp(file_of(s->e[i].rel), L"BepInEx.Unity.IL2CPP.dll")) il2cpp = 1;
         if (!_wcsicmp(file_of(s->e[i].rel), L"BepInEx.Unity.Mono.dll") || !_wcsicmp(file_of(s->e[i].rel), L"BepInEx.dll")) mono = 1;
     }
-    if (!il2cpp && mono) /* the easy mix-up: the download page lists both right next to each other */
+    if (!il2cpp && mono) /* ppl prob grab the wrong one bc the download page has both right next to each other */
         return swprintf(msg, msgn,
                         L"That's the Mono version of BepInEx, but this game needs the IL2CPP one. Press Get BepInEx in the BepInEx section to "
                         L"download the right file (BepInEx-Unity.IL2CPP-win-x64, build 793), then drag that zip in."),
@@ -296,7 +295,7 @@ static int install_bepinex_core(Lib *L, Src *s, int starter, wchar_t *msg, int m
     if (!il2cpp || !x64)
         return swprintf(msg, msgn, L"This BepInEx won't work with Horses of Hoofprint Bay. The game needs BepInEx 6 for IL2CPP, the win-x64 one."), 0;
     if (lib_game_running()) return swprintf(msg, msgn, L"Close the game first, then drag BepInEx in again."), 0;
-    int root = dir_len(s->e[starter].rel); /* the folder that holds winhttp.dll is the game folder */
+    int root = dir_len(s->e[starter].rel); /* wherever winhttp.dll is, thats the game folder */
     for (int i = 0; i < s->n; i++) {
         if ((int)wcslen(s->e[i].rel) <= root || _wcsnicmp(s->e[i].rel, s->e[starter].rel, root)) continue;
         wchar_t dest[MAX_PATH];
@@ -351,7 +350,7 @@ static int want_any(const Ent *e) {
     return 1;
 }
 
-/* "StickHorse v1.0" -> "StickHorse" + "1.0", so a newer download updates the same folder. */
+/* "StickHorse v1.0" becomes "StickHorse" + "1.0", so a newer download updates the same folder */
 static void split_version(wchar_t *name, wchar_t *ver, int vern) {
     ver[0] = 0;
     wchar_t *sp = wcsrchr(name, L' ');
@@ -366,8 +365,8 @@ static void split_version(wchar_t *name, wchar_t *ver, int vern) {
     *sp = 0;
 }
 
-/* Is the same mod already loading itself from the game folder (e.g. StickHorse as version.dll)?
-   Same bytes as what was just installed, or the file carries the mod's name. */
+/* is the same mod already loading from the game folder (like StickHorse as version.dll)?
+   same bytes as what we just installed, or the file has the mods name in it */
 static void find_twin(Lib *L, const wchar_t *name, const unsigned char *dll, size_t dll_n) {
     L->twin[0] = 0;
     char ascii[128];
@@ -392,7 +391,7 @@ static int install_dlls(Lib *L, Src *s, const wchar_t *pname, int managed, wchar
     wchar_t name[128], id[64], ver[32] = L"";
     int has_ini = 0;
     wcscpy(name, pname);
-    for (int i = 0; i < s->n; i++) /* a mod.ini can name the mod */
+    for (int i = 0; i < s->n; i++) /* a mod.ini can give the name */
         if (!_wcsicmp(file_of(s->e[i].rel), L"mod.ini")) {
             size_t n;
             unsigned char *d = src_read(s, i, &n);
@@ -407,8 +406,8 @@ static int install_dlls(Lib *L, Src *s, const wchar_t *pname, int managed, wchar
     for (int i = 0; i < s->n; i++) {
         wchar_t dest[MAX_PATH];
         const wchar_t *rel = s->e[i].rel + root;
-        /* a DLL built to load itself as e.g. version.dll gets the mod's own name here, so it can't
-           be mixed up with the Windows file of that name */
+        /* a DLL made to load as smth like version.dll gets the mods own name here,
+           so it cant get mixed up w/ the Windows file */
         int proxy = !managed && !wcschr(rel, L'\\') && hm_is_proxy_name(rel);
         if (managed) swprintf(dest, MAX_PATH, L"%ls\\BepInEx\\plugins\\%ls\\%ls", L->game, id, rel);
         else if (proxy) swprintf(dest, MAX_PATH, L"%ls\\Mods\\%ls\\%ls.dll", L->game, id, id);
@@ -416,7 +415,7 @@ static int install_dlls(Lib *L, Src *s, const wchar_t *pname, int managed, wchar
         if (!copy_ent(s, i, dest, msg, msgn)) return free(proxy_bytes), 0;
         if (proxy && !proxy_bytes) proxy_bytes = src_read(s, i, &proxy_n);
     }
-    if (!managed && !has_ini) { /* remember the name and version for the list */
+    if (!managed && !has_ini) { /* remember name and version for the list */
         wchar_t ini[MAX_PATH];
         swprintf(ini, MAX_PATH, L"%ls\\Mods\\%ls\\mod.ini", L->game, id);
         WritePrivateProfileStringW(L"Mod", L"Name", name, ini);
@@ -442,7 +441,7 @@ static int content_kind_hint(const wchar_t *rel) {
 }
 
 static int install_content(Lib *L, Src *s, const wchar_t *pname, AskKind ask, void *ctx, wchar_t *msg, int msgn) {
-    /* items: every .json (with its matching .png and other same-named files); in a Language
+    /* items: every .json (w/ its .png and other files w/ the same name), in a Language
        folder every file counts */
     int nitems = 0, kinds[MAX_ITEMS], hinted = -1, mixed = 0;
     int item_of[4096];
@@ -454,7 +453,7 @@ static int install_content(Lib *L, Src *s, const wchar_t *pname, AskKind ask, vo
         if (_wcsicmp(x, L".json") && hint != MK_LANGUAGE) continue;
         unsigned char *jd = NULL;
         size_t jn = 0;
-        if (hint != MK_LANGUAGE) { /* the file's own id beats folder names */
+        if (hint != MK_LANGUAGE) { /* the files own id wins over folder names */
             jd = src_read(s, i, &jn);
             int jk = jd ? json_kind(jd, jn) : -1;
             if (jk >= 0) hint = jk;
@@ -474,7 +473,7 @@ static int install_content(Lib *L, Src *s, const wchar_t *pname, AskKind ask, vo
             if (hinted >= 0 && hinted != hint) mixed = 1;
             hinted = hint;
         }
-        /* attach every file in the same folder with the same base name */
+        /* grab every file in the same folder w/ the same name */
         int dl = dir_len(s->e[i].rel);
         for (int j = 0; j < s->n; j++) {
             if (dir_len(s->e[j].rel) != dl || _wcsnicmp(s->e[j].rel, s->e[i].rel, dl)) continue;
@@ -483,7 +482,7 @@ static int install_content(Lib *L, Src *s, const wchar_t *pname, AskKind ask, vo
             *(wchar_t *)ext_of(b2) = 0;
             if (!_wcsicmp(b2, base)) item_of[j] = it;
         }
-        /* and every picture the item's file names, such as "spritesWearingLayer1": ["pad_layer1.png"] */
+        /* plus every pic the items file names, like "spritesWearingLayer1": ["pad_layer1.png"] */
         for (size_t a = 0; jd && a < jn; a++) {
             if (jd[a] != '"') continue;
             size_t b = a + 1;
@@ -521,9 +520,9 @@ static int install_content(Lib *L, Src *s, const wchar_t *pname, AskKind ask, vo
         hm_content_dir(L, kinds[item_of[j]], 1, dir);
         swprintf(dest, MAX_PATH, L"%ls\\%ls", dir, file_of(s->e[j].rel));
         if (!copy_ent(s, j, dest, msg, msgn)) return 0;
-        hm_keepout(L, dest, 0); /* installed again after being removed: let it stay */
+        hm_keepout(L, dest, 0); /* installed again after being removed, let it stay */
     }
-    /* one package per kind (a download could mix tack and clothes) */
+    /* one pack per kind (a download could have tack and clothes mixed) */
     wchar_t id[64], nm[160];
     int used = 0;
     for (int k = 0; k < nitems; k++) per_kind[kinds[k]]++;
@@ -547,7 +546,7 @@ static int install_content(Lib *L, Src *s, const wchar_t *pname, AskKind ask, vo
     return 1;
 }
 
-/* ------------------------------------------------------------ entry point */
+/* ==== where it all starts ==== */
 
 int lib_install(Lib *L, const wchar_t *path, AskKind ask, void *ctx, wchar_t *msg, int msgn) {
     Src s = {0};

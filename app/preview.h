@@ -5,7 +5,7 @@ typedef struct {
     wchar_t path[MAX_PATH];
     int size;
     int w, h;
-    DWORD *px; /* premultiplied BGRA, NULL if the picture couldn't be read */
+    DWORD *px; /* premultiplied BGRA, NULL if the pic wouldnt load */
 } Thumb;
 
 const Thumb *thumb_get(const wchar_t *path, int size);

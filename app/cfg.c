@@ -1,4 +1,4 @@
-/* Reading and editing BepInEx .cfg files while keeping every other line untouched. */
+/* reads and edits BepInEx .cfg files, only touches the line you changed */
 #include "cfg.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,7 +131,7 @@ int cfg_set(Cfg *c, int i, const wchar_t *value) {
             *o++ = '\n';
         }
     }
-    /* write to a temp file first so a failed save can't leave a half-written config */
+    /* save to a temp file first so a failed save cant break the config */
     wchar_t tmp[MAX_PATH + 8];
     swprintf(tmp, MAX_PATH + 8, L"%ls.tmp", c->path);
     HANDLE f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
@@ -175,7 +175,7 @@ int cfg_list(const wchar_t *game, wchar_t (*paths)[MAX_PATH], wchar_t (*titles)[
     if (f == INVALID_HANDLE_VALUE) return 0;
     int n = 0;
     do {
-        if (!_wcsicmp(fd.cFileName, L"BepInEx.cfg")) continue; /* the loader's own settings: not a mod */
+        if (!_wcsicmp(fd.cFileName, L"BepInEx.cfg")) continue; /* thats the loaders own settings, not a mod */
         swprintf(paths[n], MAX_PATH, L"%ls\\BepInEx\\config\\%ls", game, fd.cFileName);
         Cfg c;
         if (!cfg_load(&c, paths[n])) continue;

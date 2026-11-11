@@ -1,5 +1,5 @@
-// Icon and file details for HoofMods.exe
-// To use a different icon, replace icon.ico (keep the name) and rebuild.
+// icon and file info for HoofMods.exe
+// want a diff icon? swap icon.ico (keep the name) and rebuild
 #include <windows.h>
 
 1 ICON "icon.ico"

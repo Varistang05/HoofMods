@@ -1,4 +1,4 @@
-// File details for the HoofMods loader (hid.dll)
+// file info for the HoofMods loader (hid.dll)
 #include <windows.h>
 
 VS_VERSION_INFO VERSIONINFO

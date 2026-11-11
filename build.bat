@@ -1,5 +1,5 @@
 @echo off
-rem Builds HoofMods. Needs Zig 0.14.1 (https://ziglang.org/download/) with zig on your PATH.
+rem builds HoofMods, you need Zig 0.14.1 (https://ziglang.org/download/) w/ zig on your PATH
 cd /d "%~dp0"
 if not exist build\loader mkdir build\loader
 

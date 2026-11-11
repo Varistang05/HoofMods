@@ -1,20 +1,13 @@
-/* HoofMods loader: starts every enabled DLL mod found in <game>\Mods\<mod folder>\.
+/* HoofMods loader: starts every mod DLL in <game>\Mods\<mod folder>\ thats turned on
  *
- * Mods\HoofMods.ini   [Enabled] <folder>=0 turns a mod off (missing = on, so a
- *                     folder dropped in by hand just works).
- * Mods\<folder>\mod.ini  optional [Mod] Main=<file>.dll picks the one DLL to load;
- *                     without it every DLL directly in the folder is loaded.
- * %LOCALAPPDATA%\HoofMods\start_without_mods (written by the app's "Start without mods")
- *                     makes the next launch load no mods; the loader deletes it right away.
- * Log:    %LOCALAPPDATA%\HoofMods\loader_log.txt
- * Result: %LOCALAPPDATA%\HoofMods\last_launch.ini (read by the app)
+ * Mods\HoofMods.ini       [Enabled] <folder>=0 turns a mod off (not listed = on, so dropping a folder in by hand works)
+ * Mods\<folder>\mod.ini   optional [Mod] Main=<file>.dll loads just that one, otherwise every DLL in the folder loads
+ * start_without_mods      made by the apps "Start without mods" button, next start loads nothing and it gets deleted
+ * loader_log.txt, last_launch.ini   the log + results for the app (all in %LOCALAPPDATA%\HoofMods)
  *
- * Keep-out list: %LOCALAPPDATA%\HoofMods\keep_out.txt (one path per line, written by the app)
- * names tack/clothes/language files the player turned off or removed. Steam Cloud syncs the
- * game's save folder (which holds its Mods folder) and puts such files back before the game
- * starts. They are removed again here, inside the game session, so Steam records the removal
- * when the game closes. Only files inside the game's own Mods folder are ever touched.
- */
+ * keep_out.txt lists tack/clothes/language files the player turned off or removed. Steam Cloud keeps putting
+ * them back b4 the game starts, so we delete them again here while the game runs and Steam saves them as gone
+ * when the game closes. only files in the games own Mods folder ever get touched */
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,7 +43,7 @@ static int cmp_names(const void *a, const void *b) {
     return _wcsicmp((const wchar_t *)a, (const wchar_t *)b);
 }
 
-/* Exported so the app (and mods) can tell this hid.dll is the HoofMods loader. */
+/* so the app (and mods) can tell this hid.dll is ours */
 __declspec(dllexport) int HoofMods_Version(void) { return HM_VERSION; }
 
 static wchar_t g_game[MAX_PATH];
@@ -66,8 +59,8 @@ static char *read_file(const wchar_t *p, DWORD *n) {
     return b;
 }
 
-/* The same file already loads itself from the game folder (a mod installed both the normal way,
-   e.g. as version.dll, and through HoofMods): starting it twice would double every action. */
+/* same file is already loading from the game folder (like StickHorse as version.dll AND thru HoofMods),
+   running it twice would do everything double */
 static int running_from_game_folder(const wchar_t *path) {
     static const wchar_t *names[] = {L"version.dll", L"winmm.dll", L"winhttp.dll", L"wininet.dll", L"dinput8.dll", L"dxgi.dll",
                                      L"d3d9.dll", L"d3d11.dll", L"d3d12.dll", L"dsound.dll", L"xinput1_3.dll", L"xinput1_4.dll",
@@ -159,7 +152,7 @@ static DWORD WINAPI load_all(void *unused) {
     swprintf(mods, MAX_PATH, L"%ls\\Mods", game);
     swprintf(ini, MAX_PATH, L"%ls\\HoofMods.ini", mods);
 
-    WritePrivateProfileStringW(L"Mods", NULL, NULL, g_status); /* clear last launch */
+    WritePrivateProfileStringW(L"Mods", NULL, NULL, g_status); /* clear out the last start */
     SYSTEMTIME t;
     GetLocalTime(&t);
     wchar_t when[32];
@@ -169,7 +162,7 @@ static DWORD WINAPI load_all(void *unused) {
     wchar_t once[MAX_PATH];
     swprintf(once, MAX_PATH, L"%ls\\start_without_mods", g_data);
     if (g_data[0] && GetFileAttributesW(once) != INVALID_FILE_ATTRIBUTES) {
-        DeleteFileW(once); /* only this one start */
+        DeleteFileW(once); /* just this one time */
         lg("Start without mods: no mods loaded this time");
         WritePrivateProfileStringW(L"Launch", L"SafeMode", L"1", g_status);
         return 0;
@@ -187,7 +180,7 @@ static DWORD WINAPI load_all(void *unused) {
     }
     do {
         if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
-        if (fd.cFileName[0] == L'.' || fd.cFileName[0] == L'_') continue; /* _ = reserved for the app */
+        if (fd.cFileName[0] == L'.' || fd.cFileName[0] == L'_') continue; /* _ folders are for the app */
         if (n < MAX_MODS) wcscpy(names[n++], fd.cFileName);
     } while (FindNextFileW(f, &fd));
     FindClose(f);
@@ -199,7 +192,7 @@ static DWORD WINAPI load_all(void *unused) {
     return 0;
 }
 
-/* Is `p` a file directly or deeper inside `root` (which ends with a backslash)? */
+/* is p inside root? (root ends w/ a backslash) */
 static int under(const wchar_t *p, const wchar_t *root) {
     size_t k = wcslen(root);
     return k > 3 && !_wcsnicmp(p, root, k) && p[k] && !wcsstr(p, L"..");
@@ -217,7 +210,7 @@ static void keep_out(void) {
     if (!buf) return;
     buf[got] = 0;
 
-    /* the game's Mods folder, plus the app's override of it if one is set */
+    /* the games Mods folder, plus the apps own one if its set */
     wchar_t prof[MAX_PATH];
     if (!GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) prof[0] = 0;
     swprintf(root1, MAX_PATH, L"%ls\\AppData\\LocalLow\\ThogliStudios\\Horses of Hoofprint Bay\\Saves~\\Mods\\", prof);
@@ -225,7 +218,7 @@ static void keep_out(void) {
     GetPrivateProfileStringW(L"App", L"Content", L"", over, MAX_PATH, ini);
     if (over[0]) swprintf(root2, MAX_PATH, L"%ls\\", over);
 
-    /* entries for files still put back by Steam stay listed; the rest are done */
+    /* keep the ones Steam put back on the list, drop the rest */
     char *keep = malloc(got + 1), *k = keep;
     int removed = 0, done = 0;
     for (char *line = strtok(buf, "\r\n"); line; line = strtok(NULL, "\r\n")) {
@@ -278,9 +271,9 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID unused) {
             swprintf(g_status, MAX_PATH, L"%ls\\last_launch.ini", g_data);
         }
         lg("HoofMods loader %d", HM_VERSION);
-        /* right away, before the game reads its Mods folder (file calls only, safe here) */
+        /* do this right away b4 the game reads its Mods folder (only file stuff, safe in here) */
         if (g_data[0]) keep_out();
-        /* Mods are loaded on a new thread: loading DLLs from inside DllMain can deadlock. */
+        /* load mods on a new thread bc loading DLLs inside DllMain can freeze the game */
         HANDLE th = CreateThread(NULL, 0, load_all, NULL, 0, NULL);
         if (th) CloseHandle(th);
     }

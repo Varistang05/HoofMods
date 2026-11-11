@@ -1,4 +1,4 @@
-/* Controller input for the app (XInput: Xbox pads, Steam Deck, and PlayStation pads through Steam Input). */
+/* controller support thru XInput (Xbox pads, Steam Deck, and PlayStation pads w/ Steam Input) */
 #include <windows.h>
 #include "pad.h"
 

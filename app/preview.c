@@ -1,4 +1,4 @@
-/* Thumbnails of tack/clothes pictures, decoded with Windows Imaging Component and cached. */
+/* lil previews of tack/clothes pics, loaded w/ WIC and kept around */
 #define COBJMACROS
 #include <windows.h>
 #include <wincodec.h>
@@ -59,7 +59,7 @@ const Thumb *thumb_get(const wchar_t *path, int size) {
     memset(slot, 0, sizeof *slot);
     wcsncpy(slot->path, path, MAX_PATH - 1);
     slot->size = size;
-    Thumb *t = load(path, size); /* failures are cached too, so a broken picture isn't retried every frame */
+    Thumb *t = load(path, size); /* remember broken pics too so we dont retry them every frame */
     if (t) {
         slot->w = t->w;
         slot->h = t->h;

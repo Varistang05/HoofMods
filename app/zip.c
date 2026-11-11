@@ -1,4 +1,4 @@
-/* Minimal zip reader: stored and deflate entries, CRC checked. */
+/* small zip reader, does stored + deflate files and checks the CRC */
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +9,7 @@
 static unsigned rd16(const unsigned char *p) { return p[0] | p[1] << 8; }
 static unsigned rd32(const unsigned char *p) { return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24; }
 
-/* ------------------------------------------------------------ inflate */
+/* ==== inflate ==== */
 
 typedef struct {
     const unsigned char *in, *end;
@@ -48,7 +48,7 @@ static int build(Huff *h, const unsigned char *len, int n) {
     for (int i = 1; i < 16; i++) {
         left <<= 1;
         left -= h->count[i];
-        if (left < 0) return -1; /* over-subscribed */
+        if (left < 0) return -1; /* too many codes, the data is broken */
     }
     offs[1] = 0;
     for (int i = 1; i < 15; i++) offs[i + 1] = offs[i] + h->count[i];
@@ -190,7 +190,7 @@ static unsigned crc32(const unsigned char *p, size_t n) {
     return ~c;
 }
 
-/* ------------------------------------------------------------ archive */
+/* ==== the zip itself ==== */
 
 int zip_open(Zip *z, const wchar_t *path, const char **err) {
     memset(z, 0, sizeof *z);
@@ -209,7 +209,7 @@ int zip_open(Zip *z, const wchar_t *path, const char **err) {
     CloseHandle(f);
     if (!ok) return zip_close(z), *err = "could not read the file", -1;
 
-    /* end of central directory record, searched from the end (a comment may follow it) */
+    /* find the end record by searching back from the end (a zip comment can come after it) */
     long eocd = -1;
     for (long i = (long)z->len - 22; i >= 0 && i >= (long)z->len - 65557; i--)
         if (rd32(z->buf + i) == 0x06054b50) {

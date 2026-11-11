@@ -1,4 +1,4 @@
-/* Checking for a newer HoofMods (once a day, only when release.h has a version-file link). */
+/* checks if theres a newer HoofMods, once a day, only if release.h has a version file link */
 #include <windows.h>
 #include "release.h"
 #if HM_CHECK_UPDATES
@@ -14,7 +14,7 @@ static HWND g_notify;
 static wchar_t g_ini[MAX_PATH];
 static wchar_t g_latest[32];
 
-/* 1 if version a is newer than b ("1.0.10" > "1.0.9") */
+/* 1 if a is newer than b (1.0.10 beats 1.0.9) */
 static int newer(const wchar_t *a, const wchar_t *b) {
     for (;;) {
         long x = wcstol(a, (wchar_t **)&a, 10), y = wcstol(b, (wchar_t **)&b, 10);
@@ -25,7 +25,7 @@ static int newer(const wchar_t *a, const wchar_t *b) {
     }
 }
 
-#if HM_CHECK_UPDATES /* the internet code only exists in builds that check for updates */
+#if HM_CHECK_UPDATES /* internet stuff only gets built in when update checks are on */
 static int fetch(const wchar_t *url, char *out, int outn) {
     URL_COMPONENTS u = {sizeof u};
     wchar_t host[256], path[1024];
@@ -80,10 +80,10 @@ void update_start(HWND notify, const wchar_t *data_dir) {
     g_notify = notify;
     swprintf(g_ini, MAX_PATH, L"%ls\\app.ini", data_dir);
 #if !HM_CHECK_UPDATES
-    return; /* this build has no internet code at all */
+    return; /* no internet code in this build */
 #endif
     if (!HM_VERSION_FILE_URL[0]) return;
-    /* what an earlier check found still counts */
+    /* if an earlier check already found a newer one, still show it */
     wchar_t last[32];
     GetPrivateProfileStringW(L"Update", L"Latest", L"", last, 32, g_ini);
     if (last[0] && newer(last, HM_VERSION_TEXT)) wcscpy(g_latest, last);
