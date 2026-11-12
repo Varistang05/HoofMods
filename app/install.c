@@ -386,13 +386,35 @@ static void find_twin(Lib *L, const wchar_t *name, const unsigned char *dll, siz
     }
 }
 
+static int want_modini(const Ent *e) { return !_wcsicmp(file_of(e->rel), L"mod.ini"); }
+static int want_dll(const Ent *e) { return !_wcsicmp(ext_of(e->rel), L".dll"); }
+static int is_source(const Ent *e) {
+    static const wchar_t *src[] = {L".c", L".h", L".cpp", L".cs", L".sln", L".csproj", L".vcxproj"};
+    for (int i = 0; i < 7; i++)
+        if (!_wcsicmp(ext_of(e->rel), src[i])) return 1;
+    return 0;
+}
+
 static int install_dlls(Lib *L, Src *s, const wchar_t *pname, int managed, wchar_t *msg, int msgn) {
-    int root = common_root(s, want_any);
+    /* ppl sometimes drag a whole project folder (src, build\ModName\mod.dll...). if theres a mod.ini
+       its folder is the mod, if theres source code the folder w/ the DLLs is. otherwise take it all */
+    int (*pick)(const Ent *) = want_any, any_ini = 0, any_src = 0;
+    for (int i = 0; i < s->n; i++) any_ini |= want_modini(&s->e[i]), any_src |= is_source(&s->e[i]);
+    if (any_ini) pick = want_modini;
+    else if (any_src) pick = want_dll;
+    int root = common_root(s, pick);
+    wchar_t prefix[MAX_PATH] = L"";
+    for (int i = 0; i < s->n; i++)
+        if (pick(&s->e[i])) {
+            wcsncpy(prefix, s->e[i].rel, root);
+            prefix[root] = 0;
+            break;
+        }
     wchar_t name[128], id[64], ver[32] = L"";
     int has_ini = 0;
     wcscpy(name, pname);
     for (int i = 0; i < s->n; i++) /* a mod.ini can give the name */
-        if (!_wcsicmp(file_of(s->e[i].rel), L"mod.ini")) {
+        if (want_modini(&s->e[i]) && !_wcsnicmp(s->e[i].rel, prefix, root)) {
             size_t n;
             unsigned char *d = src_read(s, i, &n);
             if (d) ini_value(d, n, "Name", name, 128), ini_value(d, n, "Version", ver, 32), free(d);
@@ -405,6 +427,7 @@ static int install_dlls(Lib *L, Src *s, const wchar_t *pname, int managed, wchar
     size_t proxy_n = 0;
     for (int i = 0; i < s->n; i++) {
         wchar_t dest[MAX_PATH];
+        if (_wcsnicmp(s->e[i].rel, prefix, root)) continue; /* outside the mods folder, like src or notes */
         const wchar_t *rel = s->e[i].rel + root;
         /* a DLL made to load as smth like version.dll gets the mods own name here,
            so it cant get mixed up w/ the Windows file */
