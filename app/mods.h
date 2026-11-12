@@ -25,6 +25,15 @@ typedef struct {
     wchar_t (*items)[MAX_PATH];
 } Pkg;
 
+/* smth that went wrong w/ a mod, in plain words for the player */
+typedef struct {
+    wchar_t title[128];
+    wchar_t what[512];          /* what happened */
+    wchar_t fix[384];           /* what to do about it */
+    wchar_t details[768];       /* techy stuff for the mods author (Copy details) */
+} Problem;
+#define MAX_PROBS 24
+
 typedef struct {
     wchar_t game[MAX_PATH];     /* game folder, empty if we couldnt find it */
     wchar_t content[MAX_PATH];  /* ...\LocalLow\ThogliStudios\Horses of Hoofprint Bay\Saves~\Mods */
@@ -39,6 +48,9 @@ typedef struct {
     Pkg *pkgs;
     int npkgs;
     wchar_t twin[MAX_PATH];     /* set when an install finds the same mod in the game folder too (that rows id) */
+    Problem probs[MAX_PROBS];   /* filled by lib_scan */
+    int nprobs;
+    int loader_gone;            /* the loader was installed b4 but hid.dll isnt there anymore */
 } Lib;
 
 /* DLL names other mods use to load straight from the game folder. a code mod row w/ an id starting

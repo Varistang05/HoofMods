@@ -286,14 +286,14 @@ static int install_bepinex_core(Lib *L, Src *s, int starter, wchar_t *msg, int m
     if (!il2cpp && mono) /* ppl prob grab the wrong one bc the download page has both right next to each other */
         return swprintf(msg, msgn,
                         L"That's the Mono version of BepInEx, but this game needs the IL2CPP one. Press Get BepInEx in the BepInEx section to "
-                        L"download the right file (BepInEx-Unity.IL2CPP-win-x64, build 793), then drag that zip in."),
+                        L"download the right file (the IL2CPP win x64 one, build 793), then drag that zip in."),
                0;
     size_t n = 0;
     unsigned char *w = src_read(s, starter, &n);
     int x64 = w && n > 0x40 && rd32(w + 0x3C) + 6 < n && rd16(w + rd32(w + 0x3C) + 4) == 0x8664;
     free(w);
     if (!il2cpp || !x64)
-        return swprintf(msg, msgn, L"This BepInEx won't work with Horses of Hoofprint Bay. The game needs BepInEx 6 for IL2CPP, the win-x64 one."), 0;
+        return swprintf(msg, msgn, L"This BepInEx won't work with Horses of Hoofprint Bay. The game needs BepInEx 6 for IL2CPP, the win x64 one."), 0;
     if (lib_game_running()) return swprintf(msg, msgn, L"Close the game first, then drag BepInEx in again."), 0;
     int root = dir_len(s->e[starter].rel); /* wherever winhttp.dll is, thats the game folder */
     for (int i = 0; i < s->n; i++) {

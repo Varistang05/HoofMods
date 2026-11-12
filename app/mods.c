@@ -183,6 +183,113 @@ static Mod *add(Lib *L, ModKind k, const wchar_t *id, int on) {
     return m;
 }
 
+/* ==== problems ==== */
+
+static void add_problem(Lib *L, const wchar_t *title, const wchar_t *what, const wchar_t *fix, const wchar_t *details) {
+    if (L->nprobs >= MAX_PROBS) return;
+    Problem *p = &L->probs[L->nprobs++];
+    wcsncpy(p->title, title, 127);
+    p->title[127] = 0;
+    wcsncpy(p->what, what, 511);
+    p->what[511] = 0;
+    wcsncpy(p->fix, fix, 383);
+    p->fix[383] = 0;
+    wcsncpy(p->details, details ? details : L"", 767);
+    p->details[767] = 0;
+}
+
+/* file time as year month day hour minute (local), same format as the loaders launch time so the strings compare right */
+static void ft_str(const FILETIME *ft, wchar_t out[20]) {
+    FILETIME loc;
+    SYSTEMTIME t;
+    FileTimeToLocalFileTime(ft, &loc);
+    FileTimeToSystemTime(&loc, &t);
+    swprintf(out, 20, L"%04d-%02d-%02d %02d:%02d", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute);
+}
+
+static void launch_time(Lib *L, wchar_t out[20]) {
+    wchar_t last[MAX_PATH];
+    swprintf(last, MAX_PATH, L"%ls\\last_launch.ini", L->data);
+    GetPrivateProfileStringW(L"Launch", L"Time", L"", out, 20, last);
+}
+
+/* windows error from loading a mod DLL, in plain words. short_ is for the row, what/fix for the popup */
+static void dll_error_words(DWORD e, const wchar_t *name, wchar_t *short_, int sn, wchar_t *what, int wn, wchar_t *fix, int fn) {
+    switch (e) {
+    case 126:
+        swprintf(short_, sn, L"a file it needs is missing");
+        swprintf(what, wn, L"Windows couldn't start %ls because a file it needs is missing. Usually that's an extra DLL that should come "
+                           L"with the mod, or the Microsoft Visual C++ Redistributable.", name);
+        swprintf(fix, fn, L"Check the mod's page for anything else you need to install, then put the whole mod in again.");
+        break;
+    case 193:
+        swprintf(short_, sn, L"it's not a file Windows can run");
+        swprintf(what, wn, L"%ls isn't a 64 bit Windows mod, so the game can't run it. It might be for another game, an old version, "
+                           L"or not a code mod at all.", name);
+        swprintf(fix, fn, L"Make sure you downloaded the right file for Horses of Hoofprint Bay and put it in again.");
+        break;
+    case 5:
+        swprintf(short_, sn, L"Windows blocked it");
+        swprintf(what, wn, L"Windows or your antivirus didn't let the game open %ls.", name);
+        swprintf(fix, fn, L"If you trust where the mod came from, add the game folder as an exception in your antivirus and start the "
+                          L"game again.");
+        break;
+    case 225:
+    case 4551:
+        swprintf(short_, sn, L"your antivirus blocked it");
+        swprintf(what, wn, L"Your antivirus or Windows security blocked %ls.", name);
+        swprintf(fix, fn, L"If you trust where the mod came from, add the game folder as an exception in your antivirus and start the "
+                          L"game again.");
+        break;
+    case 2:
+    case 3:
+        swprintf(short_, sn, L"its file was gone");
+        swprintf(what, wn, L"The file for %ls wasn't there when the game started. Something moved or deleted it, and antivirus "
+                           L"programs do that sometimes.", name);
+        swprintf(fix, fn, L"Put the mod in again with HoofMods. If it keeps vanishing, check your antivirus.");
+        break;
+    case 1114:
+        swprintf(short_, sn, L"it crashed while starting");
+        swprintf(what, wn, L"%ls started but crashed right away. That usually means it was made for a different version of the game.", name);
+        swprintf(fix, fn, L"Look for an update of the mod, or turn it off for now.");
+        break;
+    default:
+        swprintf(short_, sn, L"Windows error %lu", e);
+        swprintf(what, wn, L"Windows couldn't start %ls (error %lu).", name, e);
+        swprintf(fix, fn, L"Try putting the mod in again. If it keeps happening, press Copy details and send them to the mod's author.");
+    }
+}
+
+/* newest change to a mods DLLs or mod.ini as year month day hour minute (local), same format the loader uses
+   for the launch time so we can just compare the strings. only those files bc some mods write logs in there */
+static int newest_change(const wchar_t *dir, wchar_t out[20]) {
+    wchar_t pat[MAX_PATH];
+    FILETIME best = {0};
+    int dlls = 0;
+    swprintf(pat, MAX_PATH, L"%ls\\*", dir);
+    WIN32_FIND_DATAW fd;
+    HANDLE f = FindFirstFileW(pat, &fd);
+    if (f != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            const wchar_t *ext = wcsrchr(fd.cFileName, L'.');
+            int dll = ext && !_wcsicmp(ext, L".dll");
+            if (!dll && _wcsicmp(fd.cFileName, L"mod.ini")) continue;
+            dlls += dll;
+            /* copying keeps the old write time, the creation time is when it landed here */
+            if (CompareFileTime(&fd.ftLastWriteTime, &best) > 0) best = fd.ftLastWriteTime;
+            if (CompareFileTime(&fd.ftCreationTime, &best) > 0) best = fd.ftCreationTime;
+        } while (FindNextFileW(f, &fd));
+        FindClose(f);
+    }
+    FILETIME loc;
+    SYSTEMTIME t;
+    FileTimeToLocalFileTime(&best, &loc);
+    FileTimeToSystemTime(&loc, &t);
+    swprintf(out, 20, L"%04d-%02d-%02d %02d:%02d", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute);
+    return dlls;
+}
+
 static void scan_dll_mods(Lib *L) {
     wchar_t mods[MAX_PATH], ini[MAX_PATH], last[MAX_PATH], pat[MAX_PATH];
     swprintf(mods, MAX_PATH, L"%ls\\Mods", L->game);
@@ -202,18 +309,37 @@ static void scan_dll_mods(Lib *L) {
         GetPrivateProfileStringW(L"Mod", L"Author", L"", author, 64, mi);
         GetPrivateProfileStringW(L"Mod", L"Version", L"", ver, 32, mi);
         GetPrivateProfileStringW(L"Mods", fd.cFileName, L"", st, 64, last);
+        wchar_t when[20], dir[MAX_PATH], changed[20];
+        GetPrivateProfileStringW(L"Launch", L"Time", L"", when, 20, last);
+        swprintf(dir, MAX_PATH, L"%ls\\%ls", mods, fd.cFileName);
+        int dlls = newest_change(dir, changed);
         wchar_t *o = m->info;
         int left = 256;
         if (ver[0]) o += swprintf(o, left, L"v%ls  ", ver);
         if (author[0]) o += swprintf(o, left - (int)(o - m->info), L"by %ls  ", author);
-        if (wcsncmp(st, L"failed", 6) == 0)
-            swprintf(o, left - (int)(o - m->info), L"\x2022 Failed to start last time");
+        /* the result is from the last game start, so if the mod changed after that its old news */
+        if (!st[0] || wcscmp(changed, when) > 0 || (dlls && !wcscmp(st, L"no dll"))) {
+            if (m->enabled) swprintf(o, left - (int)(o - m->info), L"\x2022 New or changed, starts the next time you play");
+        } else if (wcsncmp(st, L"failed", 6) == 0) {
+            DWORD e = 0;
+            swscanf(st, L"failed (error %lu)", &e);
+            wchar_t sh[64], what[512], fix[384], det[768];
+            dll_error_words(e, m->name, sh, 64, what, 512, fix, 384);
+            swprintf(o, left - (int)(o - m->info), L"\x2022 Failed to start: %ls", sh);
+            if (m->enabled) {
+                wchar_t title[128];
+                swprintf(title, 128, L"%ls didn't start", m->name);
+                swprintf(det, 768, L"Mod folder: %ls\r\nWindows error: %lu\r\nLast game start: %ls\r\nLoader log: %ls\\loader_log.txt", dir, e,
+                         when, L->data);
+                add_problem(L, title, what, fix, det);
+            }
+        }
         else if (!wcscmp(st, L"skipped"))
             swprintf(o, left - (int)(o - m->info), L"\x2022 Not started: the same file is in the game folder (it would run twice)");
         else if (!wcscmp(st, L"no dll"))
-            swprintf(o, left - (int)(o - m->info), L"\x2022 No DLL inside, nothing to start");
+            swprintf(o, left - (int)(o - m->info), L"\x2022 No DLL found at the last game start, nothing to start");
         else if (!wcscmp(st, L"loaded"))
-            swprintf(o, left - (int)(o - m->info), L"\x2022 Started fine last time");
+            swprintf(o, left - (int)(o - m->info), L"\x2022 Started fine at the last game start");
     } while (FindNextFileW(f, &fd));
     FindClose(f);
 }
@@ -766,8 +892,249 @@ int lib_set_bepinex(Lib *L, int on, wchar_t *err, int errn) {
     return 1;
 }
 
+/* names of the code mods + BepInEx mods that are on, comma separated */
+static void mods_on(Lib *L, wchar_t *out, int outn) {
+    out[0] = 0;
+    for (int i = 0; i < L->n; i++) {
+        Mod *m = &L->mods[i];
+        if (!m->enabled || m->hidden || (m->kind != MK_DLL && m->kind != MK_BEPINEX)) continue;
+        if (m->kind == MK_BEPINEX && !L->bep_on) continue;
+        size_t k = wcslen(out);
+        if (k + wcslen(m->name) + 4 >= (size_t)outn) break;
+        swprintf(out + k, outn - k, k ? L", %ls" : L"%ls", m->name);
+    }
+}
+
+/* the game makes a Crash_<date> folder in %TEMP%\ThogliStudios\Horses of Hoofprint Bay\Crashes when it crashes */
+static void check_crash(Lib *L, const wchar_t *when) {
+    if (!when[0]) return;
+    wchar_t tmp[MAX_PATH], pat[MAX_PATH], best_name[MAX_PATH] = L"";
+    if (!GetTempPathW(MAX_PATH, tmp)) return;
+    swprintf(pat, MAX_PATH, L"%lsThogliStudios\\Horses of Hoofprint Bay\\Crashes\\Crash_*", tmp);
+    FILETIME best = {0};
+    WIN32_FIND_DATAW fd;
+    HANDLE f = FindFirstFileW(pat, &fd);
+    if (f == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        FILETIME t = CompareFileTime(&fd.ftCreationTime, &fd.ftLastWriteTime) > 0 ? fd.ftCreationTime : fd.ftLastWriteTime;
+        if (CompareFileTime(&t, &best) > 0) best = t, wcscpy(best_name, fd.cFileName);
+    } while (FindNextFileW(f, &fd));
+    FindClose(f);
+    wchar_t at[20];
+    ft_str(&best, at);
+    if (!best_name[0] || wcscmp(at, when) < 0) return; /* crashed b4 the last start, old news */
+    wchar_t on[300], what[512], det[768];
+    mods_on(L, on, 300);
+    if (!on[0]) return; /* no code mods running so its not on us */
+    swprintf(what, 512, L"The game crashed after you started it at %ls. Crashes can happen without mods too, but these mods were on: %ls.",
+             when + 11, on);
+    swprintf(det, 768, L"Crash report: %lsThogliStudios\\Horses of Hoofprint Bay\\Crashes\\%ls\r\nCrash time: %ls\r\nMods on: %ls", tmp,
+             best_name, at, on);
+    add_problem(L, L"The game crashed last time", what,
+                L"Press Start without mods at the top and play a bit. If it doesn't crash then, one of your code mods is the cause. "
+                L"Turn them back on one at a time to find out which.",
+                det);
+}
+
+/* BepInEx writes its own log, lines like "[Error  :   SomeMod] blah" */
+static void check_bepinex_log(Lib *L, const wchar_t *when) {
+    if (!L->bepinex || !L->bep_on) return;
+    wchar_t p[MAX_PATH];
+    swprintf(p, MAX_PATH, L"%ls\\BepInEx\\LogOutput.log", L->game);
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    if (!GetFileAttributesExW(p, GetFileExInfoStandard, &a)) return;
+    wchar_t at[20];
+    ft_str(&a.ftLastWriteTime, at);
+    if (when[0] && wcscmp(at, when) < 0) return; /* from b4 the last start */
+    DWORD n;
+    char *t = slurp(p, 8u << 20, &n);
+    if (!t) return;
+    int count = 0;
+    char first[200] = "", src1[64] = "", srcs[160] = "", lines[700] = "";
+    for (char *line = strtok(t, "\r\n"); line; line = strtok(NULL, "\r\n")) {
+        if (strncmp(line, "[Error", 6) && strncmp(line, "[Fatal", 6)) continue;
+        count++;
+        char src[64] = "";
+        char *c = strchr(line, ':'), *e = strchr(line, ']');
+        if (c && e && c < e) {
+            c++;
+            while (*c == ' ') c++;
+            int k = (int)(e - c) < 63 ? (int)(e - c) : 63;
+            memcpy(src, c, k);
+            src[k] = 0;
+            while (k && src[k - 1] == ' ') src[--k] = 0;
+        }
+        if (!first[0]) {
+            const char *msg = e ? e + 1 : line;
+            while (*msg == ' ') msg++;
+            snprintf(first, sizeof first, "%.180s%s", msg, strlen(msg) > 180 ? "..." : "");
+            strcpy(src1, src);
+        }
+        if (src[0] && !strstr(srcs, src) && strlen(srcs) + strlen(src) + 3 < sizeof srcs)
+            snprintf(srcs + strlen(srcs), sizeof srcs - strlen(srcs), "%s%s", srcs[0] ? ", " : "", src);
+        if (strlen(lines) + strlen(line) + 3 < sizeof lines) strcat(strcat(lines, line), "\r\n");
+    }
+    free(t);
+    if (!count) return;
+    wchar_t wsrcs[160], wfirst[200], wlines[700], title[128], what[512], det[768];
+    MultiByteToWideChar(CP_UTF8, 0, srcs, -1, wsrcs, 160);
+    MultiByteToWideChar(CP_UTF8, 0, first, -1, wfirst, 200);
+    MultiByteToWideChar(CP_UTF8, 0, lines, -1, wlines, 700);
+    int one = !strchr(srcs, ',');
+    if (one && src1[0] && _stricmp(src1, "BepInEx")) swprintf(title, 128, L"%ls had an error", wsrcs);
+    else wcscpy(title, count == 1 ? L"A BepInEx mod had an error" : L"BepInEx mods had errors");
+    swprintf(what, 512, L"BepInEx wrote %d error%ls in its log last time%ls%ls. The first one says: \"%ls\"", count, count == 1 ? L"" : L"s",
+             wsrcs[0] ? L", from " : L"", wsrcs, wfirst);
+    swprintf(det, 768, L"BepInEx log: %ls\r\n%ls", p, wlines);
+    add_problem(L, title, what,
+                L"Check if the mod has an update for this version of the game, or turn it off in the BepInEx section. You can press "
+                L"Copy details and send them to the mod's author.",
+                det);
+}
+
+/* tack/clothes the game didnt load + items missing a pic. grouped per pack so a big pack is one problem */
+typedef struct {
+    int key;              /* pack index, or minus (row + 1) for a single item */
+    wchar_t name[128];
+    wchar_t list[300];
+    int n;
+} Group;
+
+static void group_add(Group *g, int *ng, int max, int key, const wchar_t *name, const wchar_t *item) {
+    int i = 0;
+    while (i < *ng && g[i].key != key) i++;
+    if (i == *ng) {
+        if (*ng >= max) return;
+        memset(&g[i], 0, sizeof g[i]);
+        g[i].key = key;
+        wcsncpy(g[i].name, name, 127);
+        (*ng)++;
+    }
+    if (g[i].n < 5) {
+        size_t k = wcslen(g[i].list);
+        if (k + wcslen(item) + 4 < 300) swprintf(g[i].list + k, 300 - k, k ? L", %ls" : L"%ls", item);
+    }
+    g[i].n++;
+}
+
+static void check_items(Lib *L, const wchar_t *when) {
+    /* Player.log sits 2 folders up from Saves~\Mods */
+    wchar_t plog[MAX_PATH];
+    wcscpy(plog, L->content);
+    wchar_t *cut = wcsstr(plog, L"\\Saves~");
+    if (cut) wcscpy(cut, L"\\Player.log");
+    else plog[0] = 0;
+    char *log = NULL;
+    DWORD logn = 0;
+    if (plog[0] && when[0] && !lib_game_running()) {
+        WIN32_FILE_ATTRIBUTE_DATA a;
+        wchar_t at[20];
+        if (GetFileAttributesExW(plog, GetFileExInfoStandard, &a) && (ft_str(&a.ftLastWriteTime, at), wcscmp(at, when) >= 0)) {
+            log = slurp(plog, 32u << 20, &logn);
+            if (log && !strstr(log, "Loading custom items")) free(log), log = NULL; /* game never got to loading them */
+        }
+    }
+    static Group miss[16], pics[16], bad[16];
+    int nmiss = 0, npics = 0, nbad = 0;
+    for (int i = 0; i < L->n; i++) {
+        Mod *m = &L->mods[i];
+        if ((m->kind != MK_TACK && m->kind != MK_CLOTHES) || !m->enabled || m->count) continue;
+        wchar_t dir[MAX_PATH], js[MAX_PATH];
+        content_dir(L, m->kind, 1, dir);
+        swprintf(js, MAX_PATH, L"%ls\\%ls.json", dir, m->id);
+        WIN32_FILE_ATTRIBUTE_DATA a;
+        if (!GetFileAttributesExW(js, GetFileExInfoStandard, &a)) continue; /* a lone pic, not an item */
+        int key = m->pkg >= 0 ? m->pkg : -(i + 1);
+        const wchar_t *gname = m->pkg >= 0 ? L->pkgs[m->pkg].name : m->name;
+        DWORD n;
+        char *t = slurp(js, 1 << 18, &n);
+        char id[256] = "";
+        if (!t || !json_str(t, "id", id, sizeof id) || !id[0]) {
+            group_add(bad, &nbad, 16, key, gname, m->name);
+            free(t);
+            continue;
+        }
+        free(t);
+        static Refs R;
+        R.n = 0;
+        refs_of_json(js, m->id, &R);
+        for (int r = 0; r < R.n; r++) {
+            wchar_t p[MAX_PATH], item[300];
+            swprintf(p, MAX_PATH, L"%ls\\%ls", dir, R.name[r]);
+            if (exists(p)) continue;
+            swprintf(item, 300, L"%ls (%ls)", m->name, R.name[r]);
+            group_add(pics, &npics, 16, key, gname, item);
+            break;
+        }
+        if (log) {
+            /* only items that were already there when the game started */
+            wchar_t made[20];
+            FILETIME newest = CompareFileTime(&a.ftCreationTime, &a.ftLastWriteTime) > 0 ? a.ftCreationTime : a.ftLastWriteTime;
+            ft_str(&newest, made);
+            char needle[300];
+            snprintf(needle, sizeof needle, "Successfully loaded custom item %s", id);
+            char *hit = strstr(log, needle);
+            int ok = 0;
+            while (hit && !ok) { /* make sure its the whole id, not just the start of a longer one */
+                char after = hit[strlen(needle)];
+                ok = after == '\r' || after == '\n' || after == 0 || after == ' ';
+                hit = strstr(hit + 1, needle);
+            }
+            if (!ok && wcscmp(made, when) < 0) group_add(miss, &nmiss, 16, key, gname, m->name);
+        }
+    }
+    free(log);
+    /* key below 0 = a single item, otherwise a pack w/ lots of items */
+    wchar_t title[128], what[512], det[768];
+    for (int g = 0; g < nbad; g++) {
+        swprintf(title, 128, L"%ls has a broken item file", bad[g].name);
+        if (bad[g].key < 0) swprintf(what, 512, L"The item file for %ls can't be read or has no item id, so the game skips it.", bad[g].name);
+        else
+            swprintf(what, 512, L"%d item file%ls in %ls can't be read or %ls no item id, so the game skips %ls: %ls%ls", bad[g].n,
+                     bad[g].n == 1 ? L"" : L"s", bad[g].name, bad[g].n == 1 ? L"has" : L"have", bad[g].n == 1 ? L"it" : L"them",
+                     bad[g].list, bad[g].n > 5 ? L" and more" : L"");
+        swprintf(det, 768, L"Folder: %ls\r\nItems: %ls", L->content, bad[g].list);
+        add_problem(L, title, what, L"Download the mod again and put it in again. If it still happens, tell the mod's author.", det);
+    }
+    for (int g = 0; g < npics; g++) {
+        swprintf(title, 128, L"%ls is missing %ls", pics[g].name, pics[g].n == 1 ? L"a picture" : L"pictures");
+        if (pics[g].key < 0) swprintf(what, 512, L"This item needs a picture that isn't there, so it might look wrong or not show up in the game.");
+        else
+            swprintf(what, 512, L"%d item%ls in %ls need%ls a picture that isn't there, so %ls might look wrong or not show up: %ls%ls", pics[g].n,
+                     pics[g].n == 1 ? L"" : L"s", pics[g].name, pics[g].n == 1 ? L"s" : L"", pics[g].n == 1 ? L"it" : L"they", pics[g].list,
+                     pics[g].n > 5 ? L" and more" : L"");
+        swprintf(det, 768, L"Folder: %ls\r\nMissing: %ls", L->content, pics[g].list);
+        add_problem(L, title, what, L"Download the mod again and put the whole zip in, pictures and all.", det);
+    }
+    for (int g = 0; g < nmiss; g++) {
+        swprintf(title, 128, L"The game didn't load %ls", miss[g].name);
+        if (miss[g].key < 0) swprintf(what, 512, L"At the last game start, the game skipped %ls, so you won't find it in the game.", miss[g].name);
+        else
+            swprintf(what, 512, L"At the last game start, the game skipped %d item%ls from %ls: %ls%ls", miss[g].n, miss[g].n == 1 ? L"" : L"s",
+                     miss[g].name, miss[g].list, miss[g].n > 5 ? L" and more" : L"");
+        swprintf(det, 768, L"Game log: %ls\r\nLast game start: %ls\r\nItems: %ls", plog, when, miss[g].list);
+        add_problem(L, title, what,
+                    L"The mod might be made for a different version of the game, or its files might be damaged. Look for an update or "
+                    L"download it again.",
+                    det);
+    }
+}
+
+static void find_problems(Lib *L) {
+    wchar_t when[20];
+    launch_time(L, when);
+    if (L->game[0]) {
+        check_crash(L, when);
+        check_bepinex_log(L, when);
+    }
+    check_items(L, when);
+}
+
 void lib_scan(Lib *L) {
     L->n = 0;
+    L->nprobs = 0;
+    L->loader_gone = 0;
     L->bepinex = 0;
     L->bep_on = 0;
     if (L->game[0]) {
@@ -790,7 +1157,15 @@ void lib_scan(Lib *L) {
     }
     load_packages(L);
     flag_twins(L);
+    find_problems(L);
     qsort(L->mods, L->n, sizeof(Mod), cmp_mod);
+    if (L->game[0]) {
+        wchar_t ini[MAX_PATH];
+        swprintf(ini, MAX_PATH, L"%ls\\app.ini", L->data);
+        int was = GetPrivateProfileIntW(L"App", L"LoaderInstalled", 0, ini);
+        if (L->loader == 0) L->loader_gone = was;
+        else if ((L->loader == 1 || L->loader == 3) && !was) WritePrivateProfileStringW(L"App", L"LoaderInstalled", L"1", ini); /* ppl who installed it b4 this existed */
+    }
 }
 
 /* ==== changing stuff ==== */
@@ -1135,6 +1510,10 @@ int lib_install_loader(Lib *L, wchar_t *err, int errn) {
         swprintf(err, errn, L"Could not copy " LOADER_FILE L" into the game folder (error %lu).", GetLastError());
         return 0;
     }
+    /* remember it so we can tell the player if smth (prob antivirus) deletes it later */
+    wchar_t ini[MAX_PATH];
+    swprintf(ini, MAX_PATH, L"%ls\\app.ini", L->data);
+    WritePrivateProfileStringW(L"App", L"LoaderInstalled", L"1", ini);
     detect_loader(L);
     return 1;
 }

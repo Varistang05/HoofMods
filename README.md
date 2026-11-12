@@ -2,7 +2,7 @@
 
 A little mod manager for Horses of Hoofprint Bay. Drag a mod in, flip a switch to turn it on or off, and that's it. No more digging through hidden folders.
 
-Version 1.0. Questions or bugs? Find me on Patreon: https://patreon.com/Varistang
+Version 1.1. Questions or bugs? Find me on Patreon: https://patreon.com/Varistang
 
 ## Getting started
 

@@ -6,4 +6,5 @@
 void update_start(HWND notify, const wchar_t *data_dir);
 const wchar_t *update_latest(void); /* the newer version, or NULL */
 int update_has_page(void);
+int update_should_tell(void); /* 1 = show the "new version" popup now (only once per version) */
 void update_open_page(void);

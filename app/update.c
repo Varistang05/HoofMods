@@ -87,17 +87,21 @@ void update_start(HWND notify, const wchar_t *data_dir) {
     wchar_t last[32];
     GetPrivateProfileStringW(L"Update", L"Latest", L"", last, 32, g_ini);
     if (last[0] && newer(last, HM_VERSION_TEXT)) wcscpy(g_latest, last);
-    SYSTEMTIME t;
-    GetLocalTime(&t);
-    wchar_t day[16], checked[16];
-    swprintf(day, 16, L"%04d%02d%02d", t.wYear, t.wMonth, t.wDay);
-    GetPrivateProfileStringW(L"Update", L"LastCheck", L"", checked, 16, g_ini);
-    if (wcscmp(day, checked)) {
+    /* check every time HoofMods opens so ppl find out about updates right away */
 #if HM_CHECK_UPDATES
-        HANDLE th = CreateThread(NULL, 0, check_thread, NULL, 0, NULL);
-        if (th) CloseHandle(th);
+    HANDLE th = CreateThread(NULL, 0, check_thread, NULL, 0, NULL);
+    if (th) CloseHandle(th);
 #endif
-    }
+}
+
+/* 1 the first time a newer version shows up, so the popup only comes once per version */
+int update_should_tell(void) {
+    if (!g_latest[0]) return 0;
+    wchar_t told[32];
+    GetPrivateProfileStringW(L"Update", L"Told", L"", told, 32, g_ini);
+    if (!wcscmp(told, g_latest)) return 0;
+    WritePrivateProfileStringW(L"Update", L"Told", g_latest, g_ini);
+    return 1;
 }
 
 const wchar_t *update_latest(void) { return g_latest[0] ? g_latest : NULL; }

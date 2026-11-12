@@ -12,6 +12,7 @@
 #include "cfg.h"
 #include "pad.h"
 #include "update.h"
+#include "release.h"
 
 #define APP_TITLE L"HoofMods: Mod Manager for Horses of Hoofprint Bay"
 
@@ -51,11 +52,12 @@ static void apply_theme(void) {
         C_DESK = mix(g_custom_paper, g_custom_ink, 0.08f);
         C_FADED = mix(g_custom_ink, g_custom_paper, 0.42f);
     }
+    C_FADED = mix(C_FADED, C_INK, 0.35f); /* a bit darker so the small text is easier to read on every theme */
 }
 
 enum { H_TOGGLE, H_ROW, H_REMOVE, H_FOLDER, H_INSTALL, H_FINDGAME, H_REFRESH, H_START, H_ADD,
        H_BACK, H_CFGLIST, H_CFGOPEN, H_CFG_TOGGLE, H_CFG_PREV, H_CFG_NEXT, H_CFG_EDIT,
-       H_LOOK, H_THEME, H_ZOOM, H_TEXTURE, H_PICK, H_POP, H_UPDATE, H_GETBEP, H_NOMODS, H_BEPSW,
+       H_LOOK, H_THEME, H_ZOOM, H_TEXTURE, H_PICK, H_POP, H_UPDATE, H_GETBEP, H_NOMODS, H_BEPSW, H_PROBS,
        H_WIN_MIN, H_WIN_MAX, H_WIN_CLOSE };
 typedef struct { RECT r, full; int type, arg, in_list; } Hit; /* r = the part you can see, full = the whole thing (might be scrolled away) */
 
@@ -165,6 +167,40 @@ static void text(HDC dc, HFONT f, COLORREF c, int x, int y, int w, int h, const 
     SetTextColor(dc, c);
     DrawTextW(dc, t, -1, &r, fmt | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS);
     SelectClipRgn(dc, NULL);
+}
+
+/* how tall t gets when it wraps inside w */
+static int text_h(HDC dc, HFONT f, int w, const wchar_t *t) {
+    if (!t || !t[0] || w <= 0) return 0;
+    RECT r = {0, 0, w, 0};
+    SelectObject(dc, f);
+    DrawTextW(dc, t, -1, &r, DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX | DT_CALCRECT);
+    return r.bottom;
+}
+
+/* how wide t is on one line */
+static int text_w(HDC dc, HFONT f, const wchar_t *t) {
+    SIZE sz = {0};
+    SelectObject(dc, f);
+    GetTextExtentPoint32W(dc, t, (int)wcslen(t), &sz);
+    return sz.cx;
+}
+
+/* text that wraps onto more lines instead of getting cut off, gives back how tall it was */
+static int text_wrap(HDC dc, HFONT f, COLORREF c, int x, int y, int w, const wchar_t *t, UINT fmt) {
+    int h = text_h(dc, f, w, t);
+    if (!h) return 0;
+    RECT r = {x, y, x + w, y + h};
+    if (r.top < g_clip.top || r.bottom > g_clip.bottom) {
+        HRGN rg = CreateRectRgn(g_clip.left, g_clip.top, g_clip.right, g_clip.bottom);
+        SelectClipRgn(dc, rg);
+        DeleteObject(rg);
+    }
+    SelectObject(dc, f);
+    SetTextColor(dc, c);
+    DrawTextW(dc, t, -1, &r, fmt | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX);
+    SelectClipRgn(dc, NULL);
+    return h;
 }
 
 /* small framed pic of a tack/clothes item, faded when its turned off */
@@ -296,10 +332,10 @@ static const wchar_t *EMPTY_HINT[MK_COUNT] = {
 };
 
 static void section_head(HDC dc, int px, int *y, int pw, const wchar_t *title) {
-    int headh = (int)(42 * s);
+    int headh = (int)(44 * s);
     text(dc, fHead, C_INK, px, *y, pw, headh, title, DT_LEFT | DT_VCENTER);
-    shape(px, *y + headh - 3 * s, pw, 2 * s, 1 * s, C_INK, 0.55f, 0, 0, 0);
-    *y += headh;
+    shape(px, *y + headh - 3 * s, pw, 2.4f * s, 1 * s, C_INK, 0.7f, 0, 0, 0);
+    *y += headh + (int)(4 * s);
 }
 
 static void swatch(int x, int y, int w, int h, COLORREF c, COLORREF ink) { shape(x, y, w, h, 5 * s, c, 1, ink, 1.4f * s, 0); }
@@ -334,39 +370,56 @@ static int paint_look(HDC dc, int y, int px, int pw) {
     static const wchar_t *hints[3] = {L"Text, borders and switches", L"Panels and buttons", L"Warnings and the Remove link"};
     COLORREF cols[3] = {g_custom_ink, g_custom_paper, g_custom_red};
     for (int i = 0; i < 3; i++) {
-        text(dc, fBody, C_INK, px + (int)(6 * s), y + (int)(6 * s), pw - (int)(200 * s), (int)(24 * s), labels[i], DT_LEFT | DT_VCENTER);
-        text(dc, fSmall, C_FADED, px + (int)(6 * s), y + (int)(31 * s), pw - (int)(200 * s), (int)(20 * s), hints[i], DT_LEFT | DT_VCENTER);
-        int bw = (int)(150 * s), bh = (int)(32 * s), bx = px + pw - bw, by = y + (rowh - bh) / 2;
+        int tw = pw - (int)(170 * s);
+        int hk = text_h(dc, fBody, tw, labels[i]), hd = text_h(dc, fSmall, tw, hints[i]);
+        int rh = hk + hd + (int)(23 * s);
+        if (rh < rowh) rh = rowh;
+        int ty0 = y + (rh - hk - hd - (int)(3 * s)) / 2;
+        text_wrap(dc, fBody, C_INK, px + (int)(6 * s), ty0, tw, labels[i], DT_LEFT);
+        text_wrap(dc, fSmall, C_FADED, px + (int)(6 * s), ty0 + hk + (int)(3 * s), tw, hints[i], DT_LEFT);
+        int bw = (int)(150 * s), bh = (int)(32 * s), bx = px + pw - bw, by = y + (rh - bh) / 2;
         int hov = hovered(bx, by, bw, bh);
         shape(bx, by, bw, bh, 8 * s, C_PAPER, 1, hov ? C_INK : C_FADED, 1.8f * s, 0);
         swatch(bx + (int)(8 * s), by + (int)(6 * s), (int)(36 * s), bh - (int)(12 * s), cols[i], C_INK);
         text(dc, fSmall, C_INK, bx + (int)(50 * s), by, bw - (int)(56 * s), bh, L"Change\x2026", DT_LEFT | DT_VCENTER);
         hit_add(bx, by, bw, bh, H_PICK, i);
-        y += rowh;
+        y += rh;
     }
     y += (int)(8 * s);
 
     section_head(dc, px, &y, pw, L"Text and paper");
     {
-        text(dc, fBody, C_INK, px + (int)(6 * s), y + (int)(6 * s), pw - (int)(260 * s), (int)(24 * s), L"Text size", DT_LEFT | DT_VCENTER);
-        text(dc, fSmall, C_FADED, px + (int)(6 * s), y + (int)(31 * s), pw - (int)(260 * s), (int)(20 * s), L"Makes everything bigger, handy on a Steam Deck or a TV", DT_LEFT | DT_VCENTER);
-        int cw2 = (int)(220 * s), cx = px + pw - cw2, chh = (int)(32 * s), cy = y + (rowh - chh) / 2, aw = (int)(34 * s);
+        const wchar_t *hint = L"Makes everything bigger, handy on a Steam Deck or a TV";
+        int tw = pw - (int)(240 * s);
+        int hk = text_h(dc, fBody, tw, L"Text size"), hd = text_h(dc, fSmall, tw, hint);
+        int rh = hk + hd + (int)(23 * s);
+        if (rh < rowh) rh = rowh;
+        int ty0 = y + (rh - hk - hd - (int)(3 * s)) / 2;
+        text_wrap(dc, fBody, C_INK, px + (int)(6 * s), ty0, tw, L"Text size", DT_LEFT);
+        text_wrap(dc, fSmall, C_FADED, px + (int)(6 * s), ty0 + hk + (int)(3 * s), tw, hint, DT_LEFT);
+        int cw2 = (int)(220 * s), cx = px + pw - cw2, chh = (int)(32 * s), cy = y + (rh - chh) / 2, aw = (int)(34 * s);
         shape(cx, cy, cw2, chh, 8 * s, C_PAPER, 1, C_INK, 1.8f * s, 0);
         text(dc, fHead, hovered(cx, cy, aw, chh) ? C_INK : C_FADED, cx, cy, aw, chh, L"\x2039", DT_CENTER | DT_VCENTER);
         text(dc, fHead, hovered(cx + cw2 - aw, cy, aw, chh) ? C_INK : C_FADED, cx + cw2 - aw, cy, aw, chh, L"\x203A", DT_CENTER | DT_VCENTER);
         text(dc, fBody, C_INK, cx + aw, cy, cw2 - 2 * aw, chh, ZOOM_NAMES[g_zoom], DT_CENTER | DT_VCENTER);
         hit_add(cx, cy, aw, chh, H_ZOOM, -1);
         hit_add(cx + cw2 - aw, cy, aw, chh, H_ZOOM, 1);
-        y += rowh;
+        y += rh;
     }
     {
-        text(dc, fBody, C_INK, px + (int)(6 * s), y + (int)(6 * s), pw - (int)(200 * s), (int)(24 * s), L"Paper texture", DT_LEFT | DT_VCENTER);
-        text(dc, fSmall, C_FADED, px + (int)(6 * s), y + (int)(31 * s), pw - (int)(200 * s), (int)(20 * s), L"A light grain on the background", DT_LEFT | DT_VCENTER);
-        int tx = px + pw - (int)(60 * s), ty = y + (rowh - (int)(28 * s)) / 2;
+        const wchar_t *hint = L"A light grain on the background";
+        int tw = pw - (int)(150 * s);
+        int hk = text_h(dc, fBody, tw, L"Paper texture"), hd = text_h(dc, fSmall, tw, hint);
+        int rh = hk + hd + (int)(23 * s);
+        if (rh < rowh) rh = rowh;
+        int ty0 = y + (rh - hk - hd - (int)(3 * s)) / 2;
+        text_wrap(dc, fBody, C_INK, px + (int)(6 * s), ty0, tw, L"Paper texture", DT_LEFT);
+        text_wrap(dc, fSmall, C_FADED, px + (int)(6 * s), ty0 + hk + (int)(3 * s), tw, hint, DT_LEFT);
+        int tx = px + pw - (int)(60 * s), ty = y + (rh - (int)(28 * s)) / 2;
         text(dc, fSmall, C_INK, tx - (int)(60 * s), ty, (int)(52 * s), (int)(28 * s), g_texture ? L"On" : L"Off", DT_RIGHT | DT_VCENTER);
         toggle(tx, ty, g_texture);
-        hit_add(tx - (int)(70 * s), y, (int)(130 * s), rowh, H_TEXTURE, 0);
-        y += rowh;
+        hit_add(tx - (int)(70 * s), y, (int)(130 * s), rh, H_TEXTURE, 0);
+        y += rh;
     }
     return y;
 }
@@ -377,19 +430,26 @@ static int paint_settings(HDC dc, int y, int px, int pw) {
     if (g_page == 3) return paint_look(dc, y, px, pw);
     if (g_page == 1) {
         if (!g_ncfg) {
-            text(dc, fSmall, C_FADED, px + (int)(4 * s), y, pw, (int)(34 * s), L"None of your BepInEx mods have settings yet. Start the game once so they create them.",
-                 DT_LEFT | DT_VCENTER);
-            return y + (int)(40 * s);
+            y += (int)(6 * s);
+            y += text_wrap(dc, fSmall, C_FADED, px + (int)(4 * s), y, pw - (int)(8 * s),
+                           L"None of your BepInEx mods have settings yet. Start the game once so they create them.", DT_LEFT);
+            return y + (int)(20 * s);
         }
         for (int i = 0; i < g_ncfg; i++) {
-            int hov = hovered(px, y, pw, rowh) && g_my >= g_clip.top && g_my < g_clip.bottom;
-            if (hov) shape(px - 6 * s, y + 3 * s, pw + 12 * s, rowh - 6 * s, 8 * s, C_INK, 0.05f, 0, 0, 0);
-            text(dc, fBody, C_INK, px + (int)(6 * s), y + (int)(7 * s), pw - (int)(120 * s), (int)(24 * s), g_cfg_titles[i], DT_LEFT | DT_VCENTER);
             const wchar_t *fn = wcsrchr(g_cfg_paths[i], L'\\');
-            text(dc, fSmall, C_FADED, px + (int)(6 * s), y + (int)(31 * s), pw - (int)(120 * s), (int)(20 * s), fn + 1, DT_LEFT | DT_VCENTER);
-            text(dc, fSmall, hov ? C_INK : C_FADED, px + pw - (int)(110 * s), y, (int)(104 * s), rowh, L"Change \x2192", DT_RIGHT | DT_VCENTER);
-            hit_add(px, y, pw, rowh, H_CFGOPEN, i);
-            y += rowh;
+            fn = fn ? fn + 1 : g_cfg_paths[i];
+            int tw = pw - (int)(130 * s);
+            int hk = text_h(dc, fBody, tw, g_cfg_titles[i]), hf = text_h(dc, fSmall, tw, fn);
+            int rh = hk + hf + (int)(23 * s);
+            if (rh < rowh) rh = rowh;
+            int hov = hovered(px, y, pw, rh) && g_my >= g_clip.top && g_my < g_clip.bottom;
+            if (hov) shape(px - 6 * s, y + 3 * s, pw + 12 * s, rh - 6 * s, 8 * s, C_INK, 0.05f, 0, 0, 0);
+            int ty0 = y + (rh - hk - hf - (int)(3 * s)) / 2;
+            text_wrap(dc, fBody, C_INK, px + (int)(6 * s), ty0, tw, g_cfg_titles[i], DT_LEFT);
+            text_wrap(dc, fSmall, C_FADED, px + (int)(6 * s), ty0 + hk + (int)(3 * s), tw, fn, DT_LEFT);
+            text(dc, fSmall, hov ? C_INK : C_FADED, px + pw - (int)(110 * s), y, (int)(104 * s), rh, L"Change \x2192", DT_RIGHT | DT_VCENTER);
+            hit_add(px, y, pw, rh, H_CFGOPEN, i);
+            y += rh;
         }
         return y;
     }
@@ -400,22 +460,27 @@ static int paint_settings(HDC dc, int y, int px, int pw) {
             section = e->section;
             if (i) y += (int)(8 * s);
             text(dc, fHead, C_INK, px, y, pw, headh, section[0] ? section : L"Settings", DT_LEFT | DT_VCENTER);
-            shape(px, y + headh - 3 * s, pw, 2 * s, 1 * s, C_INK, 0.55f, 0, 0, 0);
-            y += headh;
+            shape(px, y + headh - 3 * s, pw, 2.4f * s, 1 * s, C_INK, 0.7f, 0, 0, 0);
+            y += headh + (int)(4 * s);
         }
-        int cw = (int)(220 * s), cx = px + pw - cw, ch = (int)(32 * s), cy = y + (rowh - ch) / 2;
+        int cw = (int)(220 * s), cx = px + pw - cw, ch = (int)(32 * s);
         int tw = cx - px - (int)(20 * s);
-        text(dc, fBody, C_INK, px + (int)(6 * s), y + (int)(6 * s), tw, (int)(24 * s), e->key, DT_LEFT | DT_VCENTER);
         wchar_t d[300];
         if (e->def[0] && _wcsicmp(e->def, e->value)) swprintf(d, 300, L"%ls (default: %ls)", e->desc, e->def);
         else wcscpy(d, e->desc);
-        text(dc, fSmall, C_FADED, px + (int)(6 * s), y + (int)(31 * s), tw, (int)(20 * s), d, DT_LEFT | DT_VCENTER);
+        int hk = text_h(dc, fBody, tw, e->key), hd = text_h(dc, fSmall, tw, d);
+        int rh = hk + (hd ? hd + (int)(3 * s) : 0) + (int)(20 * s);
+        if (rh < rowh) rh = rowh;
+        int cy = y + (rh - ch) / 2;
+        int ty0 = y + (rh - hk - (hd ? hd + (int)(3 * s) : 0)) / 2;
+        text_wrap(dc, fBody, C_INK, px + (int)(6 * s), ty0, tw, e->key, DT_LEFT);
+        text_wrap(dc, fSmall, C_FADED, px + (int)(6 * s), ty0 + hk + (int)(3 * s), tw, d, DT_LEFT);
         if (cfg_is_bool(e)) {
             int on = !_wcsicmp(e->value, L"true");
-            int tx = px + pw - (int)(60 * s), ty = y + (rowh - (int)(28 * s)) / 2;
+            int tx = px + pw - (int)(60 * s), ty = y + (rh - (int)(28 * s)) / 2;
             text(dc, fSmall, C_INK, tx - (int)(60 * s), ty, (int)(52 * s), (int)(28 * s), on ? L"On" : L"Off", DT_RIGHT | DT_VCENTER);
             toggle(tx, ty, on);
-            hit_add(tx - (int)(70 * s), y, (int)(130 * s), rowh, H_CFG_TOGGLE, i);
+            hit_add(tx - (int)(70 * s), y, (int)(130 * s), rh, H_CFG_TOGGLE, i);
         } else if (e->nopts || e->has_range) {
             int aw = (int)(34 * s);
             shape(cx, cy, cw, ch, 8 * s, C_PAPER, 1, C_INK, 1.8f * s, 0);
@@ -433,7 +498,7 @@ static int paint_settings(HDC dc, int y, int px, int pw) {
                 text(dc, fBody, C_INK, cx + (int)(10 * s), cy, cw - (int)(20 * s), ch, e->value[0] ? e->value : L"(empty)", DT_LEFT | DT_VCENTER);
             hit_add(cx, cy, cw, ch, H_CFG_EDIT, i);
         }
-        y += rowh;
+        y += rh;
     }
     return y;
 }
@@ -521,21 +586,25 @@ static void paint_popup(HDC dc) {
     g_clip = (RECT){0, 0, g_w, g_h};
     for (int i = 0; i < g_w * g_h; i++) blend(&g_px[i], C_INK, 0.45f);
     g_nhits = 0;
-    int cw = (int)(520 * s);
-    if (cw > g_w - (int)(40 * s)) cw = g_w - (int)(40 * s);
-    int pad = (int)(26 * s);
-    RECT body = {0, 0, cw - 2 * pad, 0};
-    SelectObject(dc, fBody);
-    DrawTextW(dc, g_pop_body, -1, &body, DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
-    int bh = (int)(40 * s), th = (int)(34 * s);
-    int ch = pad + th + (int)(10 * s) + (body.bottom - body.top) + (int)(24 * s) + bh + pad;
+    /* if the text doesnt fit, the card gets wider and then the text smaller, so nothing goes off the window */
+    int pad = (int)(26 * s), bh = (int)(40 * s);
+    int cw = 0, th = 0, bodyh = 0, ch = 0;
+    HFONT bf = fBody;
+    for (int tryi = 0; tryi < 3; tryi++) {
+        cw = tryi == 0 ? (int)(520 * s) : g_w - (int)(40 * s);
+        if (cw > g_w - (int)(40 * s)) cw = g_w - (int)(40 * s);
+        bf = tryi == 2 ? fSmall : fBody;
+        th = text_h(dc, fHead, cw - 2 * pad, g_pop_title);
+        if (th < (int)(34 * s)) th = (int)(34 * s);
+        bodyh = text_h(dc, bf, cw - 2 * pad, g_pop_body);
+        ch = pad + th + (int)(10 * s) + bodyh + (int)(24 * s) + bh + pad;
+        if (ch <= g_h - (int)(20 * s)) break;
+    }
     int cx = (g_w - cw) / 2, cy = (g_h - ch) / 2;
+    if (cy < (int)(10 * s)) cy = (int)(10 * s);
     shape(cx, cy, cw, ch, 14 * s, C_PAPER, 1, C_INK, 2.6f * s, 5 * s);
-    text(dc, fHead, g_pop_danger ? C_RED : C_INK, cx + pad, cy + pad, cw - 2 * pad, th, g_pop_title, DT_LEFT | DT_VCENTER);
-    RECT br = {cx + pad, cy + pad + th + (int)(10 * s), cx + cw - pad, cy + pad + th + (int)(10 * s) + (body.bottom - body.top)};
-    SelectObject(dc, fBody); /* text() left the title font selected */
-    SetTextColor(dc, C_INK);
-    DrawTextW(dc, g_pop_body, -1, &br, DT_WORDBREAK | DT_NOPREFIX);
+    text_wrap(dc, fHead, g_pop_danger ? C_RED : C_INK, cx + pad, cy + pad, cw - 2 * pad, g_pop_title, DT_LEFT);
+    text_wrap(dc, bf, C_INK, cx + pad, cy + pad + th + (int)(10 * s), cw - 2 * pad, g_pop_body, DT_LEFT);
     /* buttons go right to left, the first one is the main one */
     int bx = cx + cw - pad, by = cy + ch - pad - bh;
     for (int b = 0; b < g_pop_nb; b++) {
@@ -567,56 +636,62 @@ static void paint(HDC wdc) {
     paint_desk();
     int m = (int)(22 * s);
 
-    /* header */
-    text(dc, fTitle, C_INK, m, (int)(12 * s), g_w - 2 * m, (int)(50 * s), L"HoofMods", DT_LEFT | DT_VCENTER);
-    text(dc, fSub, C_FADED, m + (int)(2 * s), (int)(58 * s), g_w - 2 * m, (int)(24 * s), L"Mod Manager for Horses of Hoofprint Bay", DT_LEFT | DT_VCENTER);
+    /* header: title on the left, links on the right, each one gets its own room so nothing overlaps */
+    int title_w = text_w(dc, fTitle, L"HoofMods") + (int)(8 * s);
+    text(dc, fTitle, C_INK, m, (int)(12 * s), title_w, (int)(50 * s), L"HoofMods", DT_LEFT | DT_VCENTER);
+    int look_w = g_page != 3 ? text_w(dc, fSmall, L"\x270E Appearance") + (int)(12 * s) : 0;
     if (g_page != 3) {
-        int lw = (int)(120 * s), lh = (int)(30 * s), lx = g_w - m - lw, ly2 = (int)(46 * s);
-        int hov = hovered(lx, ly2, lw, lh);
-        text(dc, fSmall, hov ? C_INK : C_FADED, lx, ly2, lw, lh, L"\x270E Appearance", DT_RIGHT | DT_VCENTER);
-        hit_add(lx, ly2, lw, lh, H_LOOK, 0);
+        int lh = (int)(26 * s), lx = g_w - m - look_w, ly2 = (int)(60 * s);
+        int hov = hovered(lx, ly2, look_w, lh);
+        text(dc, fSmall, hov ? C_INK : C_FADED, lx, ly2, look_w, lh, L"\x270E Appearance", DT_RIGHT | DT_VCENTER);
+        hit_add(lx, ly2, look_w, lh, H_LOOK, 0);
     }
+    text(dc, fSub, C_FADED, m + (int)(2 * s), (int)(58 * s), g_w - 2 * m - look_w - (int)(16 * s), (int)(24 * s),
+         L"Mod Manager for Horses of Hoofprint Bay", DT_LEFT | DT_VCENTER);
     if (update_latest()) { /* theres a newer HoofMods */
         wchar_t up[96];
         int page = update_has_page();
-        swprintf(up, 96, page ? L"HoofMods %ls is out - get it on Nexus \x2192" : L"HoofMods %ls is out", update_latest());
-        int uw = (int)(300 * s), uh = (int)(26 * s), ux = g_w - m - (int)(132 * s) - uw, uy = (int)(48 * s);
+        swprintf(up, 96, page ? L"HoofMods %ls is out, get it on Nexus \x2192" : L"HoofMods %ls is out", update_latest());
+        int uh = (int)(24 * s), uy = (int)(34 * s);
+        int ux = m + title_w + (int)(16 * s), uw = g_w - m - ux; /* right of the title, under the window buttons */
+        int need = text_w(dc, fBtn, up) + (int)(4 * s);
+        if (need < uw) ux += uw - need, uw = need;
         int hov = page && hovered(ux, uy, uw, uh);
         text(dc, fBtn, hov ? C_INK : C_RED, ux, uy, uw, uh, up, DT_RIGHT | DT_VCENTER);
         if (page) hit_add(ux, uy, uw, uh, H_UPDATE, 0);
     }
 
-    /* status card (on settings pages its the back button and page title) */
-    int sy = (int)(94 * s), sh = (int)(62 * s);
-    shape(m, sy, g_w - 2 * m, sh, 12 * s, C_PAPER, 1, C_INK, 2.4f * s, 3 * s);
-    const wchar_t *l1, *l2;
+    /* status card (on settings pages its the back button and page title). it gets taller when the text wraps */
+    int sy = (int)(94 * s);
+    const wchar_t *l1 = L"", *l2 = L"";
     wchar_t buf[300];
-    int bw = (int)(170 * s), bh = (int)(36 * s), bx = g_w - m - bw - (int)(14 * s), by = sy + (sh - bh) / 2;
+    int bw = (int)(170 * s), bh = (int)(36 * s);
     COLORREF c1 = C_INK;
+    const wchar_t *btn = NULL;
+    int btn_type = 0, nomods = 0, back = 0;
     if (g_page) {
-        int bbw = (int)(96 * s);
-        button(dc, m + (int)(14 * s), by, bbw, bh, L"\x2039 Back", H_BACK, 0, 0);
+        back = 1;
         l1 = g_page == 1 ? L"BepInEx mod settings" : g_page == 2 ? g_cfg.title : L"Appearance";
         l2 = g_page == 1   ? L"Pick a mod to change its settings."
              : g_page == 2 ? L"Changes are saved straight away. Restart the game to use them."
                            : L"Make HoofMods look the way you like. Changes are saved straight away.";
-        int tx = m + (int)(14 * s) + bbw + (int)(16 * s);
-        text(dc, fHead, C_INK, tx, sy + (int)(8 * s), g_w - m - tx - (int)(14 * s), (int)(26 * s), l1, DT_LEFT | DT_VCENTER);
-        text(dc, fSmall, C_FADED, tx, sy + (int)(34 * s), g_w - m - tx - (int)(14 * s), (int)(20 * s), l2, DT_LEFT | DT_VCENTER);
     } else if (!g_lib.game[0]) {
         l1 = L"Horses of Hoofprint Bay was not found";
         l2 = L"Point HoofMods to the game folder to manage code mods.";
         c1 = C_RED;
-        button(dc, bx, by, bw, bh, L"Find game folder", H_FINDGAME, 0, 1);
+        btn = L"Find game folder", btn_type = H_FINDGAME;
+    } else if (g_lib.loader == 1 && g_lib.nprobs) {
+        swprintf(buf, 300, g_lib.nprobs == 1 ? L"HoofMods found 1 problem" : L"HoofMods found %d problems", g_lib.nprobs);
+        l1 = buf;
+        l2 = L"Press Show problems to see what went wrong and how to fix it.";
+        c1 = C_RED;
+        btn = L"Show problems", btn_type = H_PROBS;
+        nomods = 1;
     } else if (g_lib.loader == 1) {
-        l1 = L"Ready - the HoofMods loader is installed";
+        l1 = L"Ready, the HoofMods loader is installed";
         swprintf(buf, 300, L"%ls", g_lib.game);
         l2 = buf;
-        /* one start w/ no code mods, like to check if a mod is causing problems */
-        int nw = (int)(170 * s), nx = g_w - m - nw - (int)(18 * s), ny = sy + (sh - (int)(26 * s)) / 2;
-        int hov = hovered(nx, ny, nw, (int)(26 * s));
-        text(dc, fSmall, hov ? C_INK : C_FADED, nx, ny, nw, (int)(26 * s), L"Start without mods \x2192", DT_RIGHT | DT_VCENTER);
-        hit_add(nx, ny, nw, (int)(26 * s), H_NOMODS, 0);
+        nomods = 1; /* one start w/ no code mods, like to check if a mod is causing problems */
     } else {
         c1 = C_RED;
         if (g_lib.loader == 2) {
@@ -625,20 +700,76 @@ static void paint(HDC wdc) {
         } else if (g_lib.loader == 3) {
             l1 = L"An update for the HoofMods loader is ready";
             l2 = L"Close the game, then press Update loader.";
-            button(dc, bx, by, bw, bh, L"Update loader", H_INSTALL, 0, 1);
+            btn = L"Update loader", btn_type = H_INSTALL;
+        } else if (g_lib.loader_gone) {
+            l1 = L"The HoofMods loader is gone";
+            l2 = L"Something removed it from the game folder, most likely your antivirus. Press Install loader to put it back.";
+            btn = L"Install loader", btn_type = H_INSTALL;
         } else {
             l1 = L"The HoofMods loader is not installed yet";
             l2 = L"Code mods need it. Tack, clothes and language mods work without it.";
-            button(dc, bx, by, bw, bh, L"Install loader", H_INSTALL, 0, 1);
+            btn = L"Install loader", btn_type = H_INSTALL;
         }
     }
-    if (!g_page) {
-        text(dc, fHead, c1, m + (int)(18 * s), sy + (int)(8 * s), bx - m - (int)(30 * s), (int)(26 * s), l1, DT_LEFT | DT_VCENTER);
-        text(dc, fSmall, C_FADED, m + (int)(18 * s), sy + (int)(34 * s), bx - m - (int)(30 * s), (int)(20 * s), l2, DT_LEFT | DT_VCENTER);
+    if (btn) {
+        int need = text_w(dc, fBtn, btn) + (int)(36 * s);
+        if (need > bw) bw = need;
+    }
+    const wchar_t *nm_label = L"Start without mods \x2192";
+    int nmw = text_w(dc, fSmall, nm_label) + (int)(8 * s), nmh = (int)(24 * s);
+    int bbw = (int)(96 * s);
+    int tl = back ? m + (int)(14 * s) + bbw + (int)(16 * s) : m + (int)(18 * s);
+    int right_w = btn ? bw : nomods ? nmw : 0;
+    if (btn && nomods && nmw > right_w) right_w = nmw;
+    int tr = g_w - m - (int)(16 * s) - (right_w ? right_w + (int)(16 * s) : 0);
+    int h1 = text_h(dc, fHead, tr - tl, l1), h2 = text_h(dc, fSmall, tr - tl, l2);
+    int texth = h1 + (int)(4 * s) + h2;
+    int righth = btn ? bh + (nomods ? (int)(6 * s) + nmh : 0) : nomods ? nmh : back ? bh : 0;
+    int sh = (texth > righth ? texth : righth) + (int)(20 * s);
+    if (sh < (int)(62 * s)) sh = (int)(62 * s);
+    shape(m, sy, g_w - 2 * m, sh, 12 * s, C_PAPER, 1, C_INK, 2.4f * s, 3 * s);
+    {
+        int ty = sy + (sh - texth) / 2;
+        text_wrap(dc, fHead, c1, tl, ty, tr - tl, l1, DT_LEFT);
+        text_wrap(dc, fSmall, C_FADED, tl, ty + h1 + (int)(4 * s), tr - tl, l2, DT_LEFT);
+        int rx = g_w - m - (int)(16 * s) - right_w, ry = sy + (sh - righth) / 2;
+        if (back) button(dc, m + (int)(14 * s), sy + (sh - bh) / 2, bbw, bh, L"\x2039 Back", H_BACK, 0, 0);
+        if (btn) {
+            button(dc, rx + right_w - bw, ry, bw, bh, btn, btn_type, 0, 1);
+            ry += bh + (int)(6 * s);
+        }
+        if (nomods) {
+            int nx = rx + right_w - nmw;
+            int hov = hovered(nx, ry, nmw, nmh);
+            text(dc, fSmall, hov ? C_INK : C_FADED, nx, ry, nmw, nmh, nm_label, DT_RIGHT | DT_VCENTER);
+            hit_add(nx, ry, nmw, nmh, H_NOMODS, 0);
+        }
     }
 
+    /* footer layout first, the list fills whatever is left in between */
+    const wchar_t *flabels[3] = {L"Start game", L"Install mod\x2026", L"Refresh"};
+    int fbw = (int)(130 * s), fbh = (int)(38 * s), fgap = (int)(12 * s);
+    for (int i = 0; i < 3; i++) {
+        int need = text_w(dc, fBtn, flabels[i]) + (int)(36 * s);
+        if (need > fbw) fbw = need;
+    }
+    const wchar_t *fmsg = g_msg[0] ? g_msg
+                          : g_pad_mode ? L"A choose \x00B7 B back \x00B7 X remove \x00B7 LT/RT scroll"
+                                       : L"Drag a mod's .zip here to install it.";
+    COLORREF fcol = g_msg[0] ? (g_msg_bad ? C_RED : C_INK) : C_FADED;
+    int btns_w = 3 * fbw + 2 * fgap;
+    int mw = g_w - 2 * m - btns_w - (int)(18 * s);
+    int mh = text_h(dc, fSmall, mw, fmsg);
+    int msg_above = mw < (int)(170 * s) || mh > fbh + (int)(8 * s); /* no room next to the buttons, so it goes on its own line */
+    if (msg_above) {
+        mw = g_w - 2 * m - (int)(8 * s);
+        mh = text_h(dc, fSmall, mw, fmsg);
+    }
+    int foot_h = fbh + (int)(36 * s) + (msg_above ? mh + (int)(8 * s) : 0);
+
     /* mod list */
-    int ly = sy + sh + (int)(16 * s), lb = g_h - (int)(74 * s);
+    int ly = sy + sh + (int)(16 * s), lb = g_h - foot_h;
+    if (lb < ly + (int)(60 * s)) lb = ly + (int)(60 * s);
     shape(m, ly, g_w - 2 * m, lb - ly, 12 * s, C_PAPER, 1, C_INK, 2.4f * s, 3 * s);
     RECT inner = {m + (int)(4 * s), ly + (int)(5 * s), g_w - m - (int)(4 * s), lb - (int)(5 * s)};
     g_clip = inner;
@@ -646,119 +777,129 @@ static void paint(HDC wdc) {
     g_list_h = inner.bottom - inner.top;
     int y = inner.top + (int)(8 * s) - g_scroll;
     int px = m + (int)(18 * s), pw = g_w - 2 * m - (int)(36 * s);
-    int rowh = (int)(54 * s), headh = (int)(42 * s);
+    int rowh = (int)(58 * s), headh = (int)(44 * s);
     if (g_page) y = paint_settings(dc, y, px, pw);
     else for (int k = 0; k < MK_COUNT; k++) {
         if (!kind_shown(k)) continue;
         int cnt = kind_count(k);
         swprintf(buf, 300, cnt ? L"%ls  (%d)" : L"%ls", KIND_TITLE[k], cnt);
-        text(dc, fHead, C_INK, px, y, pw, headh, buf, DT_LEFT | DT_VCENTER);
+        int links_x = px + pw;
         if (k >= MK_TACK || g_lib.game[0]) {
-            int fw = (int)(110 * s);
+            const wchar_t *fl = L"Open folder \x2192";
+            int fw = text_w(dc, fSmall, fl) + (int)(8 * s);
             int fx = px + pw - fw, fy = y + (headh - (int)(26 * s)) / 2;
             int hov = hovered(fx, fy, fw, (int)(26 * s));
-            text(dc, fSmall, hov ? C_INK : C_FADED, fx, fy, fw, (int)(26 * s), L"Open folder \x2192", DT_RIGHT | DT_VCENTER);
+            text(dc, fSmall, hov ? C_INK : C_FADED, fx, fy, fw, (int)(26 * s), fl, DT_RIGHT | DT_VCENTER);
             hit_add(fx, fy, fw, (int)(26 * s), H_FOLDER, k);
+            links_x = fx;
             if (k == MK_BEPINEX && g_ncfg) {
-                int sw = (int)(90 * s), sx = fx - sw - (int)(14 * s);
+                const wchar_t *sl = L"Settings \x2192";
+                int sw = text_w(dc, fSmall, sl) + (int)(8 * s), sx = fx - sw - (int)(16 * s);
                 hov = hovered(sx, fy, sw, (int)(26 * s));
-                text(dc, fSmall, hov ? C_INK : C_FADED, sx, fy, sw, (int)(26 * s), L"Settings \x2192", DT_RIGHT | DT_VCENTER);
+                text(dc, fSmall, hov ? C_INK : C_FADED, sx, fy, sw, (int)(26 * s), sl, DT_RIGHT | DT_VCENTER);
                 hit_add(sx, fy, sw, (int)(26 * s), H_CFGLIST, 0);
+                links_x = sx;
             }
         }
+        text(dc, fHead, C_INK, px, y, links_x - px - (int)(10 * s), headh, buf, DT_LEFT | DT_VCENTER);
         /* ink line under the heading */
-        shape(px, y + headh - 3 * s, pw, 2 * s, 1 * s, C_INK, 0.55f, 0, 0, 0);
-        y += headh;
+        shape(px, y + headh - 3 * s, pw, 2.4f * s, 1 * s, C_INK, 0.7f, 0, 0, 0);
+        y += headh + (int)(4 * s);
         if (k == MK_BEPINEX && !g_lib.bepinex) { /* BepInEx mods cant run w/o BepInEx */
-            int lh = (int)(24 * s);
-            text(dc, fBody, C_RED, px + (int)(4 * s), y + (int)(6 * s), pw, lh, L"BepInEx isn't installed, so these mods can't run yet.", DT_LEFT | DT_VCENTER);
-            text(dc, fSmall, C_FADED, px + (int)(4 * s), y + (int)(6 * s) + lh, pw - (int)(150 * s), (int)(20 * s),
-                 L"Press Get BepInEx to download the right one, then drag that zip onto HoofMods.", DT_LEFT | DT_VCENTER);
-            int gw = (int)(140 * s), gx = px + pw - gw, gy = y + (int)(6 * s) + lh;
-            int hov = hovered(gx, gy, gw, (int)(20 * s));
-            text(dc, fSmall, hov ? C_INK : C_RED, gx, gy, gw, (int)(20 * s), L"Get BepInEx \x2192", DT_RIGHT | DT_VCENTER);
-            hit_add(gx, gy - (int)(4 * s), gw, (int)(28 * s), H_GETBEP, 0);
-            y += (int)(62 * s);
+            y += (int)(6 * s);
+            y += text_wrap(dc, fBody, C_RED, px + (int)(4 * s), y, pw - (int)(8 * s), L"BepInEx isn't installed, so these mods can't run yet.", DT_LEFT);
+            y += (int)(2 * s);
+            y += text_wrap(dc, fSmall, C_FADED, px + (int)(4 * s), y, pw - (int)(8 * s),
+                           L"Press Get BepInEx to download the right one, then drag that zip onto HoofMods.", DT_LEFT);
+            const wchar_t *gl = L"Get BepInEx \x2192";
+            int gw = text_w(dc, fBtn, gl) + (int)(8 * s), gh = (int)(28 * s), gx = px + (int)(4 * s), gy = y + (int)(4 * s);
+            int hov = hovered(gx, gy, gw, gh);
+            text(dc, fBtn, hov ? C_INK : C_RED, gx, gy, gw, gh, gl, DT_LEFT | DT_VCENTER);
+            hit_add(gx, gy, gw, gh, H_GETBEP, 0);
+            y = gy + gh + (int)(10 * s);
         }
         if (k == MK_BEPINEX && g_lib.bepinex) { /* BepInEx itself */
             int on = g_lib.bep_on;
             COLORREF nc = on ? C_INK : C_FADED;
-            if (hovered(px, y, pw, rowh) && g_my >= g_clip.top && g_my < g_clip.bottom)
-                shape(px - 6 * s, y + 3 * s, pw + 12 * s, rowh - 6 * s, 8 * s, C_INK, 0.04f, 0, 0, 0);
-            int tx0 = px + (int)(6 * s), tw = pw - (int)(230 * s);
-            text(dc, fBody, nc, tx0, y + (int)(6 * s), tw, (int)(24 * s), L"BepInEx", DT_LEFT | DT_VCENTER);
-            text(dc, fSmall, C_FADED, tx0, y + (int)(29 * s), tw, (int)(20 * s),
-                 on ? L"Starts with the game, with its log window" : L"Turned off - the game starts without BepInEx and its mods",
-                 DT_LEFT | DT_VCENTER);
-            int tx = px + pw - (int)(60 * s), ty = y + (rowh - (int)(28 * s)) / 2;
+            int tx0 = px + (int)(6 * s), tw = pw - (int)(150 * s);
+            const wchar_t *bi = on ? L"Starts with the game, with its log window" : L"Turned off, the game starts without BepInEx and its mods";
+            int hn = text_h(dc, fBody, tw, L"BepInEx"), hi = text_h(dc, fSmall, tw, bi);
+            int rh = hn + hi + (int)(20 * s);
+            if (rh < rowh) rh = rowh;
+            if (hovered(px, y, pw, rh) && g_my >= g_clip.top && g_my < g_clip.bottom)
+                shape(px - 6 * s, y + 3 * s, pw + 12 * s, rh - 6 * s, 8 * s, C_INK, 0.04f, 0, 0, 0);
+            int ty0 = y + (rh - hn - hi - (int)(3 * s)) / 2;
+            text_wrap(dc, fBody, nc, tx0, ty0, tw, L"BepInEx", DT_LEFT);
+            text_wrap(dc, fSmall, C_FADED, tx0, ty0 + hn + (int)(3 * s), tw, bi, DT_LEFT);
+            int tx = px + pw - (int)(60 * s), ty = y + (rh - (int)(28 * s)) / 2;
             text(dc, fSmall, nc, tx - (int)(60 * s), ty, (int)(52 * s), (int)(28 * s), on ? L"On" : L"Off", DT_RIGHT | DT_VCENTER);
             toggle(tx, ty, on);
-            hit_add(tx - (int)(70 * s), y, (int)(130 * s), rowh, H_BEPSW, 0);
-            y += rowh;
+            hit_add(tx - (int)(70 * s), y, (int)(130 * s), rh, H_BEPSW, 0);
+            y += rh;
         }
         if (!cnt) {
-            text(dc, fSmall, C_FADED, px + (int)(4 * s), y, pw, (int)(34 * s), EMPTY_HINT[k], DT_LEFT | DT_VCENTER);
-            y += (int)(40 * s);
+            y += (int)(6 * s);
+            y += text_wrap(dc, fSmall, C_FADED, px + (int)(4 * s), y, pw - (int)(8 * s), EMPTY_HINT[k], DT_LEFT);
+            y += (int)(20 * s);
             continue;
         }
         for (int i = 0; i < g_lib.n; i++) {
             Mod *md = &g_lib.mods[i];
             if (md->kind != k || md->hidden) continue;
-            if (i == g_sel) shape(px - 6 * s, y + 3 * s, pw + 12 * s, rowh - 6 * s, 8 * s, C_INK, 0.07f, C_INK, 1.6f * s, 0);
-            else if (hovered(px, y, pw, rowh) && g_my >= g_clip.top && g_my < g_clip.bottom)
-                shape(px - 6 * s, y + 3 * s, pw + 12 * s, rowh - 6 * s, 8 * s, C_INK, 0.04f, 0, 0, 0);
             COLORREF nc = md->enabled ? C_INK : C_FADED;
-            int tx0 = px + (int)(6 * s);
-            if (k == MK_TACK || k == MK_CLOTHES) {
-                wchar_t pic[MAX_PATH];
-                int box = (int)(42 * s);
-                if (lib_preview_path(&g_lib, i, pic)) draw_thumb(tx0, y + (rowh - box) / 2, box, pic, md->enabled);
-                else shape(tx0, y + (rowh - box) / 2, box, box, 7 * s, C_PAPER, 1, C_FADED, 1.2f * s, 0);
-                tx0 += box + (int)(12 * s);
-            }
-            int tw = pw - (int)(230 * s) - (tx0 - px - (int)(6 * s));
-            text(dc, fBody, nc, tx0, y + (int)(6 * s), tw, (int)(24 * s), md->name, DT_LEFT | DT_VCENTER);
-            COLORREF ic = wcsstr(md->info, L"Failed") || wcsstr(md->info, L"twice") ? C_RED : C_FADED;
+            int tx0 = px + (int)(6 * s), box = (int)(42 * s);
+            int thumbs = k == MK_TACK || k == MK_CLOTHES;
+            if (thumbs) tx0 += box + (int)(12 * s);
+            int tx = px + pw - (int)(60 * s);       /* the switch */
+            int rw = (int)(76 * s), rx = tx - (int)(156 * s); /* Remove, left of the On/Off label */
+            int tw = rx - (int)(10 * s) - tx0;      /* text never goes under Remove */
             const wchar_t *info = md->info[0]     ? md->info
                                   : md->enabled   ? L""
-                                  : k == MK_DLL   ? L"Turned off - won't start with the game"
-                                                  : L"Turned off - stored safely by HoofMods";
-            text(dc, fSmall, ic, tx0, y + (int)(29 * s), tw, (int)(20 * s), info, DT_LEFT | DT_VCENTER);
-            int tx = px + pw - (int)(60 * s), ty = y + (rowh - (int)(28 * s)) / 2;
+                                  : k == MK_DLL   ? L"Turned off, won't start with the game"
+                                                  : L"Turned off, stored safely by HoofMods";
+            int hn = text_h(dc, fBody, tw, md->name), hi = text_h(dc, fSmall, tw, info);
+            int rh = hn + (hi ? hi + (int)(3 * s) : 0) + (int)(20 * s);
+            if (rh < rowh) rh = rowh;
+            if (i == g_sel) shape(px - 6 * s, y + 3 * s, pw + 12 * s, rh - 6 * s, 8 * s, C_INK, 0.07f, C_INK, 1.6f * s, 0);
+            else if (hovered(px, y, pw, rh) && g_my >= g_clip.top && g_my < g_clip.bottom)
+                shape(px - 6 * s, y + 3 * s, pw + 12 * s, rh - 6 * s, 8 * s, C_INK, 0.04f, 0, 0, 0);
+            if (thumbs) {
+                wchar_t pic[MAX_PATH];
+                int bx0 = px + (int)(6 * s), by0 = y + (rh - box) / 2;
+                if (lib_preview_path(&g_lib, i, pic)) draw_thumb(bx0, by0, box, pic, md->enabled);
+                else shape(bx0, by0, box, box, 7 * s, C_PAPER, 1, C_FADED, 1.2f * s, 0);
+            }
+            int ty0 = y + (rh - hn - (hi ? hi + (int)(3 * s) : 0)) / 2;
+            text_wrap(dc, fBody, nc, tx0, ty0, tw, md->name, DT_LEFT);
+            COLORREF ic = wcsstr(md->info, L"Failed") || wcsstr(md->info, L"twice") ? C_RED : C_FADED;
+            if (hi) text_wrap(dc, fSmall, ic, tx0, ty0 + hn + (int)(3 * s), tw, info, DT_LEFT);
+            int ty = y + (rh - (int)(28 * s)) / 2;
             text(dc, fSmall, nc, tx - (int)(60 * s), ty, (int)(52 * s), (int)(28 * s), md->enabled ? L"On" : L"Off", DT_RIGHT | DT_VCENTER);
             toggle(tx, ty, md->enabled);
-            int rw = (int)(70 * s), rx = tx - (int)(150 * s);
+            /* Remove is always there so ppl can find it, just quieter until you point at it */
             int rhov = hovered(rx, ty, rw, (int)(28 * s)) && g_my >= g_clip.top && g_my < g_clip.bottom;
-            if (rhov || i == g_sel || hovered(px, y, pw, rowh))
-                text(dc, fSmall, rhov ? C_RED : C_FADED, rx, ty, rw, (int)(28 * s), L"Remove", DT_CENTER | DT_VCENTER);
-            hit_add(px, y, rx - px, rowh, H_ROW, i);
+            if (rhov || i == g_sel) shape(rx, ty, rw, (int)(28 * s), 8 * s, C_PAPER, 1, rhov ? C_RED : C_FADED, 1.4f * s, 0);
+            text(dc, fSmall, rhov ? C_RED : C_FADED, rx, ty, rw, (int)(28 * s), L"Remove", DT_CENTER | DT_VCENTER);
+            hit_add(px, y, rx - px, rh, H_ROW, i);
             hit_add(rx, ty, rw, (int)(28 * s), H_REMOVE, i);
-            hit_add(tx - (int)(70 * s), y, (int)(130 * s), rowh, H_TOGGLE, i);
-            y += rowh;
+            hit_add(tx - (int)(70 * s), y, (int)(130 * s), rh, H_TOGGLE, i);
+            y += rh;
         }
-        y += (int)(10 * s);
+        y += (int)(16 * s);
     }
     g_content_h = y + g_scroll - inner.top;
     g_clip = cr;
 
     /* footer */
-    int fy = g_h - (int)(58 * s), fbw = (int)(130 * s), fbh = (int)(38 * s);
-    button(dc, g_w - m - fbw, fy, fbw, fbh, L"Start game", H_START, 0, 1);
-    button(dc, g_w - m - 2 * fbw - (int)(12 * s), fy, fbw, fbh, L"Install mod\x2026", H_ADD, 0, 0);
-    button(dc, g_w - m - 3 * fbw - (int)(24 * s), fy, fbw, fbh, L"Refresh", H_REFRESH, 0, 0);
-    int mw = g_w - 2 * m - 3 * fbw - (int)(42 * s);
-    if (g_msg[0]) {
-        RECT r = {m + (int)(4 * s), fy - (int)(6 * s), m + (int)(4 * s) + mw, fy + fbh + (int)(6 * s)};
-        SelectObject(dc, fSmall);
-        SetTextColor(dc, g_msg_bad ? C_RED : C_INK);
-        RECT calc = r;
-        DrawTextW(dc, g_msg, -1, &calc, DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
-        int th = calc.bottom - calc.top;
-        if (th < r.bottom - r.top) r.top += (r.bottom - r.top - th) / 2;
-        DrawTextW(dc, g_msg, -1, &r, DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS);
-    } else
-        text(dc, fSmall, C_FADED, m + (int)(4 * s), fy, mw, fbh,
-             g_pad_mode ? L"A choose \x00B7 B back \x00B7 X remove \x00B7 LT/RT scroll" : L"Drag a mod's .zip here to install it.", DT_LEFT | DT_VCENTER);
+    {
+        int fy = g_h - fbh - (int)(18 * s);
+        int x3 = g_w - m - fbw;
+        button(dc, x3, fy, fbw, fbh, flabels[0], H_START, 0, 1);
+        button(dc, x3 - fbw - fgap, fy, fbw, fbh, flabels[1], H_ADD, 0, 0);
+        button(dc, x3 - 2 * (fbw + fgap), fy, fbw, fbh, flabels[2], H_REFRESH, 0, 0);
+        if (msg_above) text_wrap(dc, fSmall, fcol, m + (int)(4 * s), fy - mh - (int)(10 * s), mw, fmsg, DT_LEFT);
+        else text_wrap(dc, fSmall, fcol, m + (int)(4 * s), fy + (fbh - mh) / 2, mw, fmsg, DT_LEFT);
+    }
 
     if (g_pop_active) paint_popup(dc);
     paint_window_frame(dc);
@@ -819,6 +960,43 @@ static int popup(int danger, const wchar_t *title, const wchar_t *body, const wc
 static void popup_close(int result) {
     g_pop_result = result;
     g_pop_active = 0;
+}
+
+static int copy_text(const wchar_t *t) {
+    size_t n = (wcslen(t) + 1) * sizeof(wchar_t);
+    HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, n);
+    if (!g) return 0;
+    memcpy(GlobalLock(g), t, n);
+    GlobalUnlock(g);
+    if (!OpenClipboard(g_wnd)) return GlobalFree(g), 0;
+    EmptyClipboard();
+    int ok = SetClipboardData(CF_UNICODETEXT, g) != NULL;
+    CloseClipboard();
+    if (!ok) GlobalFree(g);
+    return ok;
+}
+
+/* goes thru the problems one at a time, Copy details puts the techy bits on the clipboard for the mods author */
+static void show_problems(void) {
+    for (int i = 0; i < g_lib.nprobs;) {
+        Problem *p = &g_lib.probs[i];
+        wchar_t body[1000], title[160];
+        swprintf(body, 1000, L"%ls\n\nWhat to do: %ls", p->what, p->fix);
+        if (g_lib.nprobs > 1) swprintf(title, 160, L"%ls (%d of %d)", p->title, i + 1, g_lib.nprobs);
+        else wcscpy(title, p->title);
+        int last = i == g_lib.nprobs - 1;
+        int r = popup(1, title, body, last ? L"Close" : L"Next", L"Copy details", NULL);
+        if (r == 2) {
+            wchar_t all[2200];
+            swprintf(all, 2200, L"%ls\r\n%ls\r\n\r\n%ls\r\nLoader log: %ls\\loader_log.txt\r\nHoofMods %ls", p->title, p->what, p->details,
+                     g_lib.data, HM_VERSION_TEXT);
+            if (copy_text(all)) say(0, L"Details copied. You can paste them to the mod's author.");
+            else say(1, L"Couldn't copy the details, try again.");
+            continue; /* same problem again */
+        }
+        if (r != 1) break;
+        i++;
+    }
 }
 
 static void clamp_scroll(void) {
@@ -960,11 +1138,11 @@ static void offer_twin(wchar_t *msg, int msgn) {
         wcscpy(name, m->name);
         swprintf(body, 600,
                  L"%ls is also installed straight in the game folder (%ls). With both, it would run twice and every "
-                 L"button would count twice.\n\nTurn the game-folder copy off? You can turn it back on any time.",
+                 L"button would count twice.\n\nTurn the copy in the game folder off? You can turn it back on any time.",
                  name, twin + 1);
         g_pop_start = 1;
         if (popup(1, L"Installed twice", body, L"Turn it off", L"Keep both", NULL) == 1) {
-            if (lib_set_enabled(&g_lib, i, 0, err, 256)) wcsncat(msg, L" The game-folder copy is off now.", msgn - wcslen(msg) - 1);
+            if (lib_set_enabled(&g_lib, i, 0, err, 256)) wcsncat(msg, L" The copy in the game folder is off now.", msgn - wcslen(msg) - 1);
             else swprintf(msg, msgn, L"%ls", err);
         }
         return;
@@ -1072,7 +1250,7 @@ static void go_page(int p) {
 static void cfg_save(int i, const wchar_t *v) {
     wchar_t key[96];
     wcscpy(key, g_cfg.e[i].key);
-    if (!cfg_set(&g_cfg, i, v)) say(1, L"Couldn't save %ls. The settings file may be read-only.", key);
+    if (!cfg_set(&g_cfg, i, v)) say(1, L"Couldn't save %ls. The settings file might be set to read only.", key);
     else say(0, lib_game_running() ? L"%ls saved. Restart the game to use it." : L"%ls saved.", key);
     InvalidateRect(g_wnd, NULL, FALSE);
 }
@@ -1259,6 +1437,7 @@ static void activate(int h) {
         InvalidateRect(g_wnd, NULL, FALSE);
         break;
     }
+    case H_PROBS: show_problems(); break;
     case H_NOMODS:
         if (lib_game_running()) say(0, L"The game is already running. Close it first.");
         else if (!lib_start_without_mods(&g_lib)) say(1, L"Could not start without mods.");
@@ -1456,7 +1635,18 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_SIZE: edit_end(1); clamp_scroll(); InvalidateRect(w, NULL, FALSE); return 0;
     case WM_EDIT_END: edit_end((int)wp); return 0;
-    case WM_HM_UPDATE: InvalidateRect(w, NULL, FALSE); return 0;
+    case WM_HM_UPDATE:
+        InvalidateRect(w, NULL, FALSE);
+        /* tell them once per new version, after that the red link up top stays */
+        if (!g_pop_active && update_should_tell()) {
+            wchar_t body[300];
+            int page = update_has_page();
+            swprintf(body, 300, L"A new version of HoofMods is out. You have %ls, the new one is %ls.%ls", HM_VERSION_TEXT, update_latest(),
+                     page ? L"\n\nGrab it on Nexus to get the newest fixes and features." : L"");
+            if (popup(0, L"HoofMods update", body, page ? L"Get it on Nexus" : L"Okay", page ? L"Later" : NULL, NULL) == 1 && page)
+                update_open_page();
+        }
+        return 0;
     case WM_CTLCOLOREDIT: {
         static HBRUSH br;
         static COLORREF br_col = (COLORREF)-1;
@@ -1478,9 +1668,17 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_GETMINMAXINFO: {
+        /* small enough for a 1280x720 screen even w/ big text, big enough that the layout still makes sense */
         MINMAXINFO *mm = (MINMAXINFO *)lp;
-        mm->ptMinTrackSize.x = (LONG)(640 * s);
-        mm->ptMinTrackSize.y = (LONG)(460 * s);
+        LONG mx = (LONG)(680 * s), my = (LONG)(480 * s);
+        MONITORINFO mi = {sizeof mi};
+        if (GetMonitorInfoW(MonitorFromWindow(w, MONITOR_DEFAULTTONEAREST), &mi)) {
+            LONG ww = mi.rcWork.right - mi.rcWork.left, wh = mi.rcWork.bottom - mi.rcWork.top;
+            if (mx > ww) mx = ww;
+            if (my > wh) my = wh;
+        }
+        mm->ptMinTrackSize.x = mx;
+        mm->ptMinTrackSize.y = my;
         return 0;
     }
     case WM_MOUSEMOVE: {
@@ -1550,6 +1748,16 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(w, msg, wp, lp);
 }
 
+/* starting size, never bigger than the screen (big text on a small laptop) */
+static void start_size(int *w, int *h) {
+    RECT wa;
+    *w = (int)(860 * s), *h = (int)(680 * s);
+    if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0)) {
+        if (*w > wa.right - wa.left) *w = wa.right - wa.left;
+        if (*h > wa.bottom - wa.top) *h = wa.bottom - wa.top;
+    }
+}
+
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     (void)prev;
     (void)cmd;
@@ -1577,15 +1785,17 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     ReleaseDC(NULL, sdc);
     load_look();
     set_scale();
-    g_wnd = CreateWindowExW(0, wc.lpszClassName, APP_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                            (int)(860 * s), (int)(680 * s), NULL, NULL, inst, NULL);
+    int sw0, sh0;
+    start_size(&sw0, &sh0);
+    g_wnd = CreateWindowExW(0, wc.lpszClassName, APP_TITLE, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, sw0, sh0, NULL, NULL, inst, NULL);
     UINT (WINAPI *get_dpi)(HWND) = (void *)GetProcAddress(u, "GetDpiForWindow");
     if (get_dpi) {
         float ns = get_dpi(g_wnd) / 96.f;
         if (ns != g_dpi_s) {
             g_dpi_s = ns;
             set_scale();
-            SetWindowPos(g_wnd, NULL, 0, 0, (int)(860 * s), (int)(680 * s), SWP_NOMOVE | SWP_NOZORDER);
+            start_size(&sw0, &sh0);
+            SetWindowPos(g_wnd, NULL, 0, 0, sw0, sh0, SWP_NOMOVE | SWP_NOZORDER);
         }
     }
     DragAcceptFiles(g_wnd, TRUE);
