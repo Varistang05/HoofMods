@@ -13,6 +13,7 @@
 #include "pad.h"
 #include "update.h"
 #include "release.h"
+#include "report.h"
 
 #define APP_TITLE L"HoofMods: Mod Manager for Horses of Hoofprint Bay"
 
@@ -57,7 +58,7 @@ static void apply_theme(void) {
 
 enum { H_TOGGLE, H_ROW, H_REMOVE, H_FOLDER, H_INSTALL, H_FINDGAME, H_REFRESH, H_START, H_ADD,
        H_BACK, H_CFGLIST, H_CFGOPEN, H_CFG_TOGGLE, H_CFG_PREV, H_CFG_NEXT, H_CFG_EDIT,
-       H_LOOK, H_THEME, H_ZOOM, H_TEXTURE, H_PICK, H_POP, H_UPDATE, H_GETBEP, H_NOMODS, H_BEPSW, H_PROBS,
+       H_LOOK, H_THEME, H_ZOOM, H_TEXTURE, H_PICK, H_POP, H_UPDATE, H_GETBEP, H_NOMODS, H_BEPSW, H_PROBS, H_REPORT,
        H_WIN_MIN, H_WIN_MAX, H_WIN_CLOSE };
 typedef struct { RECT r, full; int type, arg, in_list; } Hit; /* r = the part you can see, full = the whole thing (might be scrolled away) */
 
@@ -640,13 +641,20 @@ static void paint(HDC wdc) {
     int title_w = text_w(dc, fTitle, L"HoofMods") + (int)(8 * s);
     text(dc, fTitle, C_INK, m, (int)(12 * s), title_w, (int)(50 * s), L"HoofMods", DT_LEFT | DT_VCENTER);
     int look_w = g_page != 3 ? text_w(dc, fSmall, L"\x270E Appearance") + (int)(12 * s) : 0;
+    int bug_w = text_w(dc, fSmall, L"Bug report") + (int)(12 * s);
+    int lh = (int)(26 * s), lx = g_w - m - look_w, ly2 = (int)(60 * s);
     if (g_page != 3) {
-        int lh = (int)(26 * s), lx = g_w - m - look_w, ly2 = (int)(60 * s);
         int hov = hovered(lx, ly2, look_w, lh);
         text(dc, fSmall, hov ? C_INK : C_FADED, lx, ly2, look_w, lh, L"\x270E Appearance", DT_RIGHT | DT_VCENTER);
         hit_add(lx, ly2, look_w, lh, H_LOOK, 0);
     }
-    text(dc, fSub, C_FADED, m + (int)(2 * s), (int)(58 * s), g_w - 2 * m - look_w - (int)(16 * s), (int)(24 * s),
+    { /* bug report link sits left of Appearance */
+        int bx2 = lx - bug_w - (look_w ? (int)(8 * s) : 0);
+        int hov = hovered(bx2, ly2, bug_w, lh);
+        text(dc, fSmall, hov ? C_INK : C_FADED, bx2, ly2, bug_w, lh, L"Bug report", DT_RIGHT | DT_VCENTER);
+        hit_add(bx2, ly2, bug_w, lh, H_REPORT, 0);
+    }
+    text(dc, fSub, C_FADED, m + (int)(2 * s), (int)(58 * s), g_w - 2 * m - look_w - bug_w - (int)(24 * s), (int)(24 * s),
          L"Mod Manager for Horses of Hoofprint Bay", DT_LEFT | DT_VCENTER);
     if (update_latest()) { /* theres a newer HoofMods */
         wchar_t up[96];
@@ -976,6 +984,23 @@ static int copy_text(const wchar_t *t) {
     return ok;
 }
 
+/* zips up the logs on the Desktop, opens the folder w/ it picked and tells them what to do w/ it */
+static void do_report(void) {
+    wchar_t path[MAX_PATH], err[300];
+    SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_WAIT));
+    if (!report_make(&g_lib, NULL, path, MAX_PATH, err, 300)) {
+        popup(1, L"Couldn't make the bug report", err, L"Okay", NULL, NULL);
+        return;
+    }
+    wchar_t args[MAX_PATH + 16], body[700];
+    swprintf(args, MAX_PATH + 16, L"/select,\"%ls\"", path);
+    ShellExecuteW(NULL, L"open", L"explorer.exe", args, NULL, SW_SHOWNORMAL);
+    const wchar_t *name = wcsrchr(path, L'\\');
+    swprintf(body, 700, L"It's on your Desktop, called \"%ls\".\n\nSend this file to the mod's author (on Patreon, Nexus or Discord). Your Windows name and Steam ID were taken out.",
+             name ? name + 1 : path);
+    popup(0, L"Bug report saved", body, L"Okay", NULL, NULL);
+}
+
 /* goes thru the problems one at a time, Copy details puts the techy bits on the clipboard for the mods author */
 static void show_problems(void) {
     for (int i = 0; i < g_lib.nprobs;) {
@@ -985,7 +1010,11 @@ static void show_problems(void) {
         if (g_lib.nprobs > 1) swprintf(title, 160, L"%ls (%d of %d)", p->title, i + 1, g_lib.nprobs);
         else wcscpy(title, p->title);
         int last = i == g_lib.nprobs - 1;
-        int r = popup(1, title, body, last ? L"Close" : L"Next", L"Copy details", NULL);
+        int r = popup(1, title, body, last ? L"Close" : L"Next", L"Copy details", L"Make bug report");
+        if (r == 3) {
+            do_report();
+            continue; /* back to the same problem after */
+        }
         if (r == 2) {
             wchar_t all[2200];
             swprintf(all, 2200, L"%ls\r\n%ls\r\n\r\n%ls\r\nLoader log: %ls\\loader_log.txt\r\nHoofMods %ls", p->title, p->what, p->details,
@@ -1438,6 +1467,7 @@ static void activate(int h) {
         break;
     }
     case H_PROBS: show_problems(); break;
+    case H_REPORT: do_report(); break;
     case H_NOMODS:
         if (lib_game_running()) say(0, L"The game is already running. Close it first.");
         else if (!lib_start_without_mods(&g_lib)) say(1, L"Could not start without mods.");
