@@ -320,10 +320,24 @@ static int install_bepinex_tree(Lib *L, Src *s, const wchar_t *pname, wchar_t *m
             return swprintf(msg, msgn, L"This BepInEx download is missing winhttp.dll."), 0;
         }
     }
-    int n = 0, files = 0;
+    int n = 0, files = 0, data = 0;
     for (int i = 0; i < s->n; i++) {
         int a = seg_after(s->e[i].rel, L"BepInEx");
-        if (a < 0) continue;
+        if (a < 0) {
+            /* some plugins bring their own stuff for the games save Mods folder too (like Paint the Bay's Mods\Coats packs).
+               b4 this they just got skipped and the plugin ran w/ nothing to use */
+            int m = seg_after(s->e[i].rel, L"Mods");
+            if (m < 0 || !L->content[0]) continue;
+            wchar_t dest[MAX_PATH];
+            swprintf(dest, MAX_PATH, L"%ls\\%ls", L->content, s->e[i].rel + m);
+            /* a file right in the plugins own folder (Mods\Coats\assignments.json) is the players own settings,
+               an update doesnt get to wipe it. pack files deeper down do get updated */
+            const wchar_t *sub = wcschr(s->e[i].rel + m, L'\\');
+            if (sub && !wcschr(sub + 1, L'\\') && GetFileAttributesW(dest) != INVALID_FILE_ATTRIBUTES) continue;
+            if (!copy_ent(s, i, dest, msg, msgn)) return 0;
+            data++;
+            continue;
+        }
         wchar_t dest[MAX_PATH];
         swprintf(dest, MAX_PATH, L"%ls\\BepInEx\\%ls", L->game, s->e[i].rel + a);
         if (!copy_ent(s, i, dest, msg, msgn)) return 0;
@@ -340,7 +354,9 @@ static int install_bepinex_tree(Lib *L, Src *s, const wchar_t *pname, wchar_t *m
     wchar_t id[64];
     sanitize(pname, id, 64);
     if (n) save_package(L, id, pname, MK_BEPINEX, g_items, n);
-    swprintf(msg, msgn, L"Installed %ls (%d file%ls into BepInEx).%ls", pname, files, files == 1 ? L"" : L"s",
+    wchar_t extra[96] = L"";
+    if (data) swprintf(extra, 96, L" and %d into the game's Mods folder", data);
+    swprintf(msg, msgn, L"Installed %ls (%d file%ls into BepInEx%ls).%ls", pname, files, files == 1 ? L"" : L"s", extra,
              L->bepinex ? L"" : L" It needs BepInEx to run.");
     return 1;
 }

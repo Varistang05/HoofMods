@@ -1,7 +1,7 @@
 #pragma once
 /* fill these in b4 uploading */
 
-#define HM_VERSION_TEXT L"1.1.0" /* change FILEVERSION and "FileVersion" in app.rc too */
+#define HM_VERSION_TEXT L"1.1.1" /* change FILEVERSION and "FileVersion" in app.rc too */
 
 /* your HoofMods page on Nexus, leave it empty and theres no "get it on Nexus" button */
 #define HM_NEXUS_URL L"https://www.nexusmods.com/horsesofhoofprintbay/mods/14"
