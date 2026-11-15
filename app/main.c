@@ -669,15 +669,14 @@ static void paint(HDC wdc) {
          L"Mod Manager for Horses of Hoofprint Bay", DT_LEFT | DT_VCENTER);
     if (update_latest()) { /* theres a newer HoofMods */
         wchar_t up[96];
-        int page = update_has_page();
-        swprintf(up, 96, page ? L"HoofMods %ls is out, get it on Patreon \x2192" : L"HoofMods %ls is out", update_latest());
+        swprintf(up, 96, L"HoofMods %ls is out, click to update \x2192", update_latest());
         int uh = (int)(24 * s), uy = (int)(34 * s);
         int ux = m + title_w + (int)(16 * s), uw = g_w - m - ux; /* right of the title, under the window buttons */
         int need = text_w(dc, fBtn, up) + (int)(4 * s);
         if (need < uw) ux += uw - need, uw = need;
-        int hov = page && hovered(ux, uy, uw, uh);
+        int hov = hovered(ux, uy, uw, uh);
         text(dc, fBtn, hov ? C_INK : C_RED, ux, uy, uw, uh, up, DT_RIGHT | DT_VCENTER);
-        if (page) hit_add(ux, uy, uw, uh, H_UPDATE, 0);
+        hit_add(ux, uy, uw, uh, H_UPDATE, 0);
     }
 
     /* status card (on settings pages its the back button and page title). it gets taller when the text wraps */
@@ -1115,6 +1114,34 @@ static void do_folders(void) {
     ShellExecuteW(NULL, L"open", p, NULL, NULL, SW_SHOWNORMAL);
 }
 
+/* Update now: asks first, downloads + swaps the files, then starts the new HoofMods and closes this one */
+static void ask_update(void) {
+    if (!update_latest()) return;
+    wchar_t body[300], err[300];
+    swprintf(body, 300, L"A new version of HoofMods is out. You have %ls, the new one is %ls.\n\nPress Update now and HoofMods updates itself and restarts.",
+             HM_VERSION_TEXT, update_latest());
+    if (popup(0, L"HoofMods update", body, L"Update now", L"Later", NULL) != 1) return;
+    say(0, L"Updating HoofMods\x2026");
+    UpdateWindow(g_wnd);
+    SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_WAIT));
+    if (!update_install(err, 300)) {
+        say(1, L"The update didn't work, nothing was changed.");
+        if (popup(1, L"Couldn't update", err, L"Open Patreon", L"Okay", NULL) == 1) update_open_page();
+        return;
+    }
+    wchar_t me[MAX_PATH];
+    GetModuleFileNameW(NULL, me, MAX_PATH);
+    STARTUPINFOW si = {sizeof si};
+    PROCESS_INFORMATION pi;
+    if (CreateProcessW(me, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        DestroyWindow(g_wnd); /* the new one takes over */
+    } else {
+        popup(0, L"HoofMods updated", L"All done! Close HoofMods and open it again to use the new version.", L"Okay", NULL, NULL);
+    }
+}
+
 static void do_install(void) {
     wchar_t err[256];
     int update = g_lib.loader == 3;
@@ -1417,7 +1444,7 @@ static void activate(int h) {
     switch (t->type) {
     case H_BACK: go_page(g_page == 3 ? 0 : g_page - 1); break;
     case H_LOOK: go_page(3); break;
-    case H_UPDATE: update_open_page(); break;
+    case H_UPDATE: ask_update(); break;
     case H_GETBEP: ShellExecuteW(NULL, L"open", L"https://builds.bepinex.dev/projects/bepinex_be/793/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.793%2Bdbc82f0.zip", NULL, NULL, SW_SHOWNORMAL); break;
     case H_WIN_MIN: ShowWindow(g_wnd, SW_MINIMIZE); break;
     case H_WIN_MAX: ShowWindow(g_wnd, IsZoomed(g_wnd) ? SW_RESTORE : SW_MAXIMIZE); break;
@@ -1694,6 +1721,10 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SIZE: edit_end(1); clamp_scroll(); InvalidateRect(w, NULL, FALSE); return 0;
     case WM_EDIT_END: edit_end((int)wp); return 0;
     case WM_HM_WHATSNEW: {
+        if (g_pop_active) { /* only one popup at a time, wait till the other one closes */
+            SetTimer(w, 7, 400, NULL);
+            return 0;
+        }
         wchar_t title[64];
         swprintf(title, 64, L"What's new in HoofMods %ls", HM_VERSION_TEXT);
         popup(0, title, HM_WHATS_NEW, L"Got it", NULL, NULL);
@@ -1702,13 +1733,12 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_HM_UPDATE:
         InvalidateRect(w, NULL, FALSE);
         /* tell them once per new version, after that the red link up top stays */
-        if (!g_pop_active && update_should_tell()) {
-            wchar_t body[300];
-            int page = update_has_page();
-            swprintf(body, 300, L"A new version of HoofMods is out. You have %ls, the new one is %ls.%ls", HM_VERSION_TEXT, update_latest(),
-                     page ? L"\n\nGrab it on my Patreon to get the newest fixes and features." : L"");
-            if (popup(0, L"HoofMods update", body, page ? L"Open Patreon" : L"Okay", page ? L"Later" : NULL, NULL) == 1 && page)
-                update_open_page();
+        if (g_pop_active) { /* a popup is up (like whats new), ask again when its closed */
+            SetTimer(w, 8, 400, NULL);
+            return 0;
+        }
+        if (update_should_tell()) {
+            ask_update();
         }
         return 0;
     case WM_CTLCOLOREDIT: {
@@ -1801,6 +1831,11 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_TIMER:
         if (wp == 2) {
             pad_tick();
+            return 0;
+        }
+        if (wp == 7 || wp == 8) { /* a popup that had to wait for another one */
+            KillTimer(w, wp);
+            PostMessageW(w, wp == 7 ? WM_HM_WHATSNEW : WM_HM_UPDATE, 0, 0);
             return 0;
         }
         KillTimer(w, 1);

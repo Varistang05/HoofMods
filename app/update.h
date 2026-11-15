@@ -9,3 +9,6 @@ const wchar_t *update_latest(void); /* the newer version, or NULL */
 int update_has_page(void);
 int update_should_tell(void); /* 1 = show the "new version" popup now (only once per version) */
 void update_open_page(void);
+/* Update now: downloads the newest zip, checks its SHA256 against the version file, swaps HoofMods.exe + loader\hid.dll.
+   1 = done (restart HoofMods), 0 = nothing changed and err says why in plain words */
+int update_install(wchar_t *err, int errn);
