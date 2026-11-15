@@ -58,7 +58,7 @@ static void apply_theme(void) {
 
 enum { H_TOGGLE, H_ROW, H_REMOVE, H_FOLDER, H_INSTALL, H_FINDGAME, H_REFRESH, H_START, H_ADD,
        H_BACK, H_CFGLIST, H_CFGOPEN, H_CFG_TOGGLE, H_CFG_PREV, H_CFG_NEXT, H_CFG_EDIT,
-       H_LOOK, H_THEME, H_ZOOM, H_TEXTURE, H_PICK, H_POP, H_UPDATE, H_GETBEP, H_NOMODS, H_BEPSW, H_PROBS, H_REPORT,
+       H_LOOK, H_THEME, H_ZOOM, H_TEXTURE, H_PICK, H_POP, H_UPDATE, H_GETBEP, H_NOMODS, H_BEPSW, H_PROBS, H_REPORT, H_FOLDERS,
        H_WIN_MIN, H_WIN_MAX, H_WIN_CLOSE };
 typedef struct { RECT r, full; int type, arg, in_list; } Hit; /* r = the part you can see, full = the whole thing (might be scrolled away) */
 
@@ -648,13 +648,19 @@ static void paint(HDC wdc) {
         text(dc, fSmall, hov ? C_INK : C_FADED, lx, ly2, look_w, lh, L"\x270E Appearance", DT_RIGHT | DT_VCENTER);
         hit_add(lx, ly2, look_w, lh, H_LOOK, 0);
     }
+    int fold_w = text_w(dc, fSmall, L"Folders") + (int)(12 * s);
     { /* bug report link sits left of Appearance */
         int bx2 = lx - bug_w - (look_w ? (int)(8 * s) : 0);
         int hov = hovered(bx2, ly2, bug_w, lh);
         text(dc, fSmall, hov ? C_INK : C_FADED, bx2, ly2, bug_w, lh, L"Bug report", DT_RIGHT | DT_VCENTER);
         hit_add(bx2, ly2, bug_w, lh, H_REPORT, 0);
+        /* Folders link left of that: opens the games Saves~ folder (saves, horse files + the games Mods folder) */
+        int fx2 = bx2 - fold_w - (int)(8 * s);
+        hov = hovered(fx2, ly2, fold_w, lh);
+        text(dc, fSmall, hov ? C_INK : C_FADED, fx2, ly2, fold_w, lh, L"Folders", DT_RIGHT | DT_VCENTER);
+        hit_add(fx2, ly2, fold_w, lh, H_FOLDERS, 0);
     }
-    text(dc, fSub, C_FADED, m + (int)(2 * s), (int)(58 * s), g_w - 2 * m - look_w - bug_w - (int)(24 * s), (int)(24 * s),
+    text(dc, fSub, C_FADED, m + (int)(2 * s), (int)(58 * s), g_w - 2 * m - look_w - bug_w - fold_w - (int)(32 * s), (int)(24 * s),
          L"Mod Manager for Horses of Hoofprint Bay", DT_LEFT | DT_VCENTER);
     if (update_latest()) { /* theres a newer HoofMods */
         wchar_t up[96];
@@ -1088,6 +1094,18 @@ static void do_toggle(int i) {
     InvalidateRect(g_wnd, NULL, FALSE);
 }
 
+/* Folders link: opens the games Saves~ folder, the saves (Games), horse files for transfer (Horses) and the games Mods folder r all in there */
+static void do_folders(void) {
+    if (!g_lib.content[0]) { say(1, L"Couldn't find the game's save folder."); return; }
+    wchar_t p[MAX_PATH];
+    wcscpy(p, g_lib.content); /* ...\Saves~\Mods -> ...\Saves~ */
+    wchar_t *sl = wcsrchr(p, L'\\');
+    if (!sl) return;
+    *sl = 0;
+    hm_mkdirs(p);
+    ShellExecuteW(NULL, L"open", p, NULL, NULL, SW_SHOWNORMAL);
+}
+
 static void do_install(void) {
     wchar_t err[256];
     int update = g_lib.loader == 3;
@@ -1468,6 +1486,7 @@ static void activate(int h) {
     }
     case H_PROBS: show_problems(); break;
     case H_REPORT: do_report(); break;
+    case H_FOLDERS: do_folders(); break;
     case H_NOMODS:
         if (lib_game_running()) say(0, L"The game is already running. Close it first.");
         else if (!lib_start_without_mods(&g_lib)) say(1, L"Could not start without mods.");
