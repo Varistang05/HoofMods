@@ -142,6 +142,11 @@ static void shape(float x, float y, float w, float h, float rad, COLORREF fill, 
     if (y0 < g_clip.top) y0 = g_clip.top;
     if (x1 > g_clip.right) x1 = g_clip.right;
     if (y1 > g_clip.bottom) y1 = g_clip.bottom;
+    /* and never outside the picture itself (a tiny window, like while its minimized, used to crash here) */
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > g_w) x1 = g_w;
+    if (y1 > g_h) y1 = g_h;
     for (int py = y0; py < y1; py++)
         for (int px = x0; px < x1; px++) {
             float fx = px + 0.5f - cx, fy = py + 0.5f - cy;
@@ -214,10 +219,10 @@ static void draw_thumb(int x, int y, int box, const wchar_t *path, int on) {
     float fade = on ? 1.f : 0.4f;
     for (int j = 0; j < t->h; j++) {
         int py = oy + j;
-        if (py < g_clip.top || py >= g_clip.bottom) continue;
+        if (py < g_clip.top || py >= g_clip.bottom || py < 0 || py >= g_h) continue;
         for (int i = 0; i < t->w; i++) {
             int px = ox + i;
-            if (px < g_clip.left || px >= g_clip.right) continue;
+            if (px < g_clip.left || px >= g_clip.right || px < 0 || px >= g_w) continue;
             DWORD s32 = t->px[j * t->w + i];
             float a = ((s32 >> 24) & 255) / 255.f * fade;
             if (a <= 0) continue;
@@ -625,7 +630,7 @@ static void paint(HDC wdc) {
     GetClientRect(g_wnd, &cr);
     g_w = cr.right;
     g_h = cr.bottom;
-    if (g_w <= 0 || g_h <= 0) return;
+    if (g_w <= 0 || g_h <= 0 || IsIconic(g_wnd)) return; /* minimized = nothing to draw */
     BITMAPINFO bi = {{sizeof(BITMAPINFOHEADER), g_w, -g_h, 1, 32, BI_RGB}};
     HDC dc = CreateCompatibleDC(wdc);
     HBITMAP bmp = CreateDIBSection(wdc, &bi, DIB_RGB_COLORS, (void **)&g_px, NULL, 0);
@@ -1688,6 +1693,12 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_SIZE: edit_end(1); clamp_scroll(); InvalidateRect(w, NULL, FALSE); return 0;
     case WM_EDIT_END: edit_end((int)wp); return 0;
+    case WM_HM_WHATSNEW: {
+        wchar_t title[64];
+        swprintf(title, 64, L"What's new in HoofMods %ls", HM_VERSION_TEXT);
+        popup(0, title, HM_WHATS_NEW, L"Got it", NULL, NULL);
+        return 0;
+    }
     case WM_HM_UPDATE:
         InvalidateRect(w, NULL, FALSE);
         /* tell them once per new version, after that the red link up top stays */
@@ -1855,6 +1866,19 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     SetTimer(g_wnd, 2, 16, NULL); /* controller */
     update_start(g_wnd, g_lib.data);
     ShowWindow(g_wnd, show);
+    {
+        /* whats new popup, once per version. app.ini [App] LastVersion = the last version that ran.
+           1.1.4 and older didnt save that, so an app.ini that already has [Look] or [Update] means they updated */
+        wchar_t ini[MAX_PATH], last[32], look[8], upd[16];
+        look_ini(ini);
+        GetPrivateProfileStringW(L"App", L"LastVersion", L"", last, 32, ini);
+        GetPrivateProfileStringW(L"Look", L"Theme", L"", look, 8, ini);
+        GetPrivateProfileStringW(L"Update", L"LastCheck", L"", upd, 16, ini);
+        int updated = last[0] ? wcscmp(last, HM_VERSION_TEXT) != 0 : (look[0] || upd[0]);
+        WritePrivateProfileStringW(L"App", L"LastVersion", HM_VERSION_TEXT, ini);
+        const wchar_t *wn = HM_WHATS_NEW;
+        if (updated && wn[0]) PostMessageW(g_wnd, WM_HM_WHATSNEW, 0, 0);
+    }
     MSG m;
     while (GetMessageW(&m, NULL, 0, 0)) {
         TranslateMessage(&m);

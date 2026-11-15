@@ -2,6 +2,7 @@
 #include <windows.h>
 
 #define WM_HM_UPDATE (WM_APP + 7) /* sent to the window when theres a newer version */
+#define WM_HM_WHATSNEW (WM_APP + 8) /* first start after an update: show whats new */
 
 void update_start(HWND notify, const wchar_t *data_dir);
 const wchar_t *update_latest(void); /* the newer version, or NULL */
