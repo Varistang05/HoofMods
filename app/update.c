@@ -106,8 +106,8 @@ int update_should_tell(void) {
 
 const wchar_t *update_latest(void) { return g_latest[0] ? g_latest : NULL; }
 
-int update_has_page(void) { return HM_NEXUS_URL[0] != 0; }
+int update_has_page(void) { return HM_UPDATE_URL[0] != 0; }
 
 void update_open_page(void) {
-    if (HM_NEXUS_URL[0]) ShellExecuteW(NULL, L"open", HM_NEXUS_URL, NULL, NULL, SW_SHOWNORMAL);
+    if (HM_UPDATE_URL[0]) ShellExecuteW(NULL, L"open", HM_UPDATE_URL, NULL, NULL, SW_SHOWNORMAL);
 }

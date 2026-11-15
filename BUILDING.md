@@ -1,6 +1,6 @@
 # Building HoofMods
 
-You only need this if you want to build HoofMods yourself. If you just want to use it, grab the zip from Nexus.
+You only need this if you want to build HoofMods yourself. If you just want to use it, grab the zip from my Patreon (https://www.patreon.com/cw/Varistang) or the Releases page here.
 
 1. Install [Zig](https://ziglang.org/download/) 0.14.1 and make sure typing `zig version` in a command prompt works.
 2. Double click `build.bat`.
@@ -11,4 +11,4 @@ You only need this if you want to build HoofMods yourself. If you just want to u
 * `app` is HoofMods itself, the window where you manage your mods.
 * `loader` is the little `hid.dll` that goes in the game folder and starts code mods with the game.
 
-It's all plain C with no extra libraries. The Nexus link and the update check settings are in `app\release.h`.
+It's all plain C with no extra libraries. The Patreon link and the update check settings are in `app\release.h`.

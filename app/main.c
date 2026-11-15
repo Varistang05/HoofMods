@@ -665,7 +665,7 @@ static void paint(HDC wdc) {
     if (update_latest()) { /* theres a newer HoofMods */
         wchar_t up[96];
         int page = update_has_page();
-        swprintf(up, 96, page ? L"HoofMods %ls is out, get it on Nexus \x2192" : L"HoofMods %ls is out", update_latest());
+        swprintf(up, 96, page ? L"HoofMods %ls is out, get it on Patreon \x2192" : L"HoofMods %ls is out", update_latest());
         int uh = (int)(24 * s), uy = (int)(34 * s);
         int ux = m + title_w + (int)(16 * s), uw = g_w - m - ux; /* right of the title, under the window buttons */
         int need = text_w(dc, fBtn, up) + (int)(4 * s);
@@ -1695,8 +1695,8 @@ static LRESULT CALLBACK wnd_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
             wchar_t body[300];
             int page = update_has_page();
             swprintf(body, 300, L"A new version of HoofMods is out. You have %ls, the new one is %ls.%ls", HM_VERSION_TEXT, update_latest(),
-                     page ? L"\n\nGrab it on Nexus to get the newest fixes and features." : L"");
-            if (popup(0, L"HoofMods update", body, page ? L"Get it on Nexus" : L"Okay", page ? L"Later" : NULL, NULL) == 1 && page)
+                     page ? L"\n\nGrab it on my Patreon to get the newest fixes and features." : L"");
+            if (popup(0, L"HoofMods update", body, page ? L"Open Patreon" : L"Okay", page ? L"Later" : NULL, NULL) == 1 && page)
                 update_open_page();
         }
         return 0;

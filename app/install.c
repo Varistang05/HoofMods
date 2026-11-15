@@ -146,7 +146,7 @@ static void sanitize(const wchar_t *in, wchar_t *out, int outn) {
     if (!out[0]) wcscpy(out, L"Mod");
 }
 
-/* download names come w/ extra junk from the site, like the nexus id, version and upload time at the end,
+/* download names come w/ extra junk from the site, like a site id, version and upload time at the end,
    or a patreon date stamp + random code. we cut that off so just the name is left */
 static void pretty_name(const wchar_t *in, wchar_t *out, int outn) {
     wcsncpy(out, in, outn - 1);
