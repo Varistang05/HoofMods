@@ -1002,9 +1002,13 @@ static void do_report(void) {
     swprintf(args, MAX_PATH + 16, L"/select,\"%ls\"", path);
     ShellExecuteW(NULL, L"open", L"explorer.exe", args, NULL, SW_SHOWNORMAL);
     const wchar_t *name = wcsrchr(path, L'\\');
-    swprintf(body, 700, L"It's on your Desktop, called \"%ls\".\n\nSend this file to the mod's author (on Patreon, Nexus or Discord). Your Windows name and Steam ID were taken out.",
+    swprintf(body, 700,
+             L"It's on your Desktop, called \"%ls\".\n\nSend it to me on Patreon (press Open Patreon) or email it to " HM_REPORT_EMAIL
+             L". Your Windows name and Steam ID were taken out.",
              name ? name + 1 : path);
-    popup(0, L"Bug report saved", body, L"Okay", NULL, NULL);
+    /* first button = the main one */
+    if (popup(0, L"Bug report saved", body, L"Open Patreon", L"Okay", NULL) == 1)
+        ShellExecuteW(NULL, L"open", HM_REPORT_URL, NULL, NULL, SW_SHOWNORMAL);
 }
 
 /* goes thru the problems one at a time, Copy details puts the techy bits on the clipboard for the mods author */

@@ -1,10 +1,14 @@
 #pragma once
 /* fill these in b4 uploading */
 
-#define HM_VERSION_TEXT L"1.1.2" /* change FILEVERSION and "FileVersion" in app.rc too */
+#define HM_VERSION_TEXT L"1.1.3" /* change FILEVERSION and "FileVersion" in app.rc too */
 
 /* your HoofMods page on Nexus, leave it empty and theres no "get it on Nexus" button */
 #define HM_NEXUS_URL L"https://www.nexusmods.com/horsesofhoofprintbay/mods/14"
+
+/* where bug reports go: the bug report popup opens this link + shows the email */
+#define HM_REPORT_URL L"https://www.patreon.com/cw/Varistang"
+#define HM_REPORT_EMAIL L"varistang05@gmail.com"
 
 /* link to a tiny text file w/ the newest version on the first line, like "1.0.1" (a raw GitHub file works)
    leave it empty and HoofMods never checks for updates or goes online */
